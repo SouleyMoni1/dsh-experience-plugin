@@ -1,0 +1,68 @@
+{
+  "name": "dsh-hello-plugin",
+  "version": "0.2.0",
+  "description": "DSH plugin: per-model reasoning levels for custom API models, with family presets and an official-settings-page editor.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "!lib/**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "pnpm build:types && pnpm build:js",
+    "build:types": "tsc -b",
+    "build:js": "tsdown",
+    "dev": "tsdown --watch"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "@deepseek-ai/dsh-host-apiproxy": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "@types/node": "^24.0.0",
+    "tsdown": "^0.22.14",
+    "typescript": "^5.9.2",
+    "react": "^19.0.0",
+    "@types/react": "^19.0.0",
+    "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-connection": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "model-reasoning",
+    "reasoning-effort",
+    "settings"
+  ]
+}

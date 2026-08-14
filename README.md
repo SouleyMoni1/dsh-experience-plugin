@@ -184,18 +184,26 @@ node scripts/verify-model-reasoning.mjs   # 可选：纯函数层验证
 node scripts/e2e-model-reasoning.mjs      # 可选：真实栈端到端验证
 ```
 
-## 安装到 profile（本地开发）
+## 安装到 profile
+
+发布后从 npm 安装：
 
 ```sh
-# 物理目录仍为 dsh-hello-plugin（历史路径），包名已改为 dsh-experience-plugin
-dsh plugin --profile web add link:<project-path>
+dsh plugin --profile web add dsh-experience-plugin
 # 重启 dsh web 后生效
 ```
 
 卸载：
 
 ```sh
-dsh plugin --profile web remove dsh-hello-plugin
+dsh plugin --profile web remove dsh-experience-plugin
+```
+
+本地开发（link 安装，路径换成你的项目目录）：
+
+```sh
+dsh plugin --profile web add link:<本项目绝对路径>
+# 重启 dsh web 后生效
 ```
 
 ## 新增功能指引

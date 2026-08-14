@@ -1,14 +1,16 @@
 // model-reasoning 端到端验证：真实 settings-file + llm + pi-ai 栈，临时 DSH_HOME
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+// 运行前提：先 pnpm install（本脚本使用下列 devDependencies）。
 import { Context } from '@deepseek-ai/cordis'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
+import { parse } from 'yaml'
 import { applyModelReasoning } from '../lib/types/features/model-reasoning/host.js'
 import { buildInjectionPatch, MODEL_REASONING_NS, ModelReasoningSettingsSchema, dispatchMrRpc, MR_RPC_GET, MR_RPC_WRITE } from '../lib/index.js'
-const yamlMod = await import('yaml')
 
-const HOME = './.e2e-home'
+const HOME = fileURLToPath(new URL('../.e2e-home', import.meta.url))
 const DOC = HOME + '/settings.yaml'
 rmSync(HOME, { recursive: true, force: true })
 mkdirSync(HOME, { recursive: true })
@@ -46,7 +48,7 @@ console.log('temp home ready:', DOC)
 
 // Phase 0：0.2.0 改名迁移 —— 旧命名空间 dsh-hello-plugin 的用户系列配置
 // 必须自动迁到 dsh-experience-plugin，并按迁移后的系列注入模型。
-const MIGRATE_HOME = './.e2e-migrate-home'
+const MIGRATE_HOME = fileURLToPath(new URL('../.e2e-migrate-home', import.meta.url))
 const MIGRATE_DOC = MIGRATE_HOME + '/settings.yaml'
 rmSync(MIGRATE_HOME, { recursive: true, force: true })
 mkdirSync(MIGRATE_HOME, { recursive: true })
@@ -93,7 +95,7 @@ if (!Array.isArray(migratedView.user?.families)) { console.log('FAIL: new namesp
 if (migratedView.user.families.length !== 1 || migratedView.user.families[0].id !== 'legacy-x') { console.log('FAIL: migrated family mismatch'); process.exit(1) }
 if (migratedView.user.defaultEfforts.medium !== 'medium') { console.log('FAIL: migrated defaultEfforts mismatch'); process.exit(1) }
 if (!legacyView) { console.log('FAIL: legacy namespace should stay registered for migration'); process.exit(1) }
-const migratedYaml = yamlMod.parse(readFileSync(MIGRATE_DOC, 'utf8'))
+const migratedYaml = parse(readFileSync(MIGRATE_DOC, 'utf8'))
 const legacyTestModel = migratedYaml['llm-pi-ai'].providers.codex.models[0]
 console.log('migrated families:', migratedView.user.families.length, 'legacy-test-model:', JSON.stringify(legacyTestModel.reasoningEfforts))
 if (!legacyTestModel.reasoningEfforts || legacyTestModel.reasoningEfforts.high !== 'high') { console.log('FAIL: migrated family must inject legacy-test-model'); process.exit(1) }
@@ -122,7 +124,7 @@ console.log('namespace registered; revision =', desc.revision)
 
 // 2) 磁盘文档断言
 const after = readFileSync(DOC, 'utf8')
-const yaml = yamlMod.parse(after)
+const yaml = parse(after)
 const codexModels = yaml['llm-pi-ai'].providers.codex.models
 const effortOf = (id) => codexModels.find((m) => m.id === id).reasoningEfforts
 console.log('gpt-5.6-luna:', JSON.stringify(effortOf('gpt-5.6-luna')))
@@ -163,7 +165,7 @@ codexModels2.push({ id: 'my-custom-x', name: 'my-custom-x' })
 await app.settings.update('llm-pi-ai', { providers: { codex: { models: codexModels2 } } }, llmDesc2.revision)
 await new Promise((r) => setTimeout(r, 1500))
 const after3 = readFileSync(DOC, 'utf8')
-const y3 = yamlMod.parse(after3)
+const y3 = parse(after3)
 const myModel = y3['llm-pi-ai'].providers.codex.models.find((m) => m.id === 'my-custom-x')
 console.log('my-custom-x efforts:', JSON.stringify(myModel.reasoningEfforts))
 if (!myModel.reasoningEfforts || myModel.reasoningEfforts.max !== 'max') { console.log('FAIL: user family must apply'); process.exit(1) }
@@ -205,7 +207,7 @@ codexModels3.push({ id: 'my-custom-y', name: 'my-custom-y' })
 await app.settings.update('llm-pi-ai', { providers: { codex: { models: codexModels3 } } }, llmDesc3.revision)
 await new Promise((r) => setTimeout(r, 1500))
 const y3b = readFileSync(DOC, 'utf8')
-const modelsY = yamlMod.parse(y3b)['llm-pi-ai'].providers.codex.models
+const modelsY = parse(y3b)['llm-pi-ai'].providers.codex.models
 const myModel2 = modelsY.find((m) => m.id === 'my-custom-y')
 const myModelX = modelsY.find((m) => m.id === 'my-custom-x')
 console.log('my-custom-y after rpc write:', JSON.stringify(myModel2.reasoningEfforts))
@@ -249,7 +251,7 @@ try {
   process.exit(1)
 }
 // 断言：任何模型都没有空 reasoningEfforts
-const yFinal = yamlMod.parse(readFileSync(DOC, 'utf8'))['llm-pi-ai']
+const yFinal = parse(readFileSync(DOC, 'utf8'))['llm-pi-ai']
 for (const [route, provider] of Object.entries(yFinal.providers)) {
   for (const model of provider.models) {
     const re = model.reasoningEfforts
@@ -270,7 +272,7 @@ const uiPatch2 = { providers: { codex: { models: llmFinal2.user.providers.codex.
 }) } } }
 await app.settings.update('llm-pi-ai', uiPatch2, llmFinal2.revision)
 await new Promise((r) => setTimeout(r, 1500))
-const yFinal2 = yamlMod.parse(readFileSync(DOC, 'utf8'))['llm-pi-ai']
+const yFinal2 = parse(readFileSync(DOC, 'utf8'))['llm-pi-ai']
 const dsAgain = yFinal2.providers.codex.models.find((m) => m.id === 'deepseek-v4-flash')
 console.log('deepseek after clearing:', JSON.stringify(dsAgain.reasoningEfforts))
 if (!dsAgain.reasoningEfforts || dsAgain.reasoningEfforts.low !== 'low') { console.log('FAIL: cleared model must be re-injected from family'); process.exit(1) }

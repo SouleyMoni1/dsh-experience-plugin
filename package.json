@@ -64,5 +64,13 @@
     "model-reasoning",
     "reasoning-effort",
     "settings"
-  ]
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SouleyMoni1/dsh-experience-plugin.git"
+  },
+  "author": {
+    "name": "SouleyMoni1",
+    "url": "https://github.com/SouleyMoni1"
+  }
 }

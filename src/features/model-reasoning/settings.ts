@@ -13,8 +13,14 @@ import z from '@deepseek-ai/schemastery'
 import type { ReasoningEfforts, FamilyRule } from './defaults.js'
 import { BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS } from './defaults.js'
 
-/** 本插件的 settings 命名空间键。 */
-export const MODEL_REASONING_NS = 'dsh-hello-plugin'
+/** 当前系列配置命名空间（对外包名 dsh-experience-plugin）。 */
+export const MODEL_REASONING_NS = 'dsh-experience-plugin'
+
+/**
+ * 旧版命名空间（0.2.0 包名 dsh-hello-plugin）。
+ * 只用于 host 端一次性迁移用户已保存的系列配置，迁移完成后不再读写。
+ */
+export const LEGACY_MODEL_REASONING_NS = 'dsh-hello-plugin'
 
 /** 系列规则 schema。 */
 export const FamilyRuleSchema = z.object({

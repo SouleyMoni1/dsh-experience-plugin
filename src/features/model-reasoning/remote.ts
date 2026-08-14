@@ -16,7 +16,7 @@ import type { ModelReasoningSettings } from './settings.js'
 import { MODEL_REASONING_NS } from './settings.js'
 
 /** RPC 通道（绝对路径前缀）。 */
-export const MR_RPC_CHANNEL = '/dsh-hello-plugin'
+export const MR_RPC_CHANNEL = '/dsh-experience-plugin'
 /** 读取系列配置。 */
 export const MR_RPC_GET = 'model-reasoning/get'
 /** 写入系列配置。 */

@@ -1,5 +1,5 @@
 /**
- * dsh-hello-plugin —— host 半区入口。
+ * dsh-experience-plugin —— host 半区入口。
  *
  * 功能分配（每个功能一个独立模块，新增功能在此装配）：
  *   - features/model-reasoning/自定义 API 模型思考等级（自动注入 + 系列配置 + 自由配置）
@@ -7,7 +7,7 @@
  * 插件配置示例（cordis.patch.yml 或 ~/.dsh/settings.yaml）：
  * ```yaml
  * - id: hello
- *   name: dsh-hello-plugin
+ *   name: dsh-experience-plugin
  *   config:
  *     modelReasoning:
  *       enabled: true
@@ -77,7 +77,7 @@ export const Config = z.object({
 export const inject = ['settings'] as const
 
 /** 插件名（日志与诊断用）。 */
-export const name = 'dsh-hello-plugin'
+export const name = 'dsh-experience-plugin'
 
 /**
  * 插件主体：装配全部功能。

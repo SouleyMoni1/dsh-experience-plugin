@@ -6,6 +6,7 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { applyModelReasoning } from '../lib/types/features/model-reasoning/host.js'
 import { buildInjectionPatch, MODEL_REASONING_NS, ModelReasoningSettingsSchema, dispatchMrRpc, MR_RPC_GET, MR_RPC_WRITE } from '../lib/index.js'
+const yamlMod = await import('yaml')
 
 const HOME = './.e2e-home'
 const DOC = HOME + '/settings.yaml'
@@ -43,6 +44,62 @@ const TEMPLATE = [
 writeFileSync(DOC, TEMPLATE, 'utf8')
 console.log('temp home ready:', DOC)
 
+// Phase 0：0.2.0 改名迁移 —— 旧命名空间 dsh-hello-plugin 的用户系列配置
+// 必须自动迁到 dsh-experience-plugin，并按迁移后的系列注入模型。
+const MIGRATE_HOME = './.e2e-migrate-home'
+const MIGRATE_DOC = MIGRATE_HOME + '/settings.yaml'
+rmSync(MIGRATE_HOME, { recursive: true, force: true })
+mkdirSync(MIGRATE_HOME, { recursive: true })
+writeFileSync(MIGRATE_DOC, [
+  'llm-pi-ai:',
+  '  providers:',
+  '    codex:',
+  '      displayName: EdenAI',
+  '      apiKeyEnv: CODEX_API_KEY',
+  '      api: openai-responses',
+  '      baseURL: https://api.example.com/v1',
+  '      models:',
+  '        - id: legacy-test-model',
+  '          name: legacy-test-model',
+  'dsh-hello-plugin:',
+  '  defaultEfforts:',
+  '    off: null',
+  '    medium: medium',
+  '  families:',
+  '    - id: legacy-x',
+  '      label: legacy-x',
+  '      pattern: ^legacy-',
+  '      efforts:',
+  '        off: null',
+  '        high: high',
+  '',
+].join('\n'), 'utf8')
+const appMigrate = new Context()
+try {
+  appMigrate.plugin(FileSettingsProvider, { path: MIGRATE_DOC, dshHome: MIGRATE_HOME, watch: false })
+  appMigrate.plugin(LlmRuntime, {})
+  appMigrate.plugin(piAi, { providers: {} })
+} catch (error) {
+  console.log('MIGRATE MOUNT FAIL:', error.message)
+  process.exit(1)
+}
+await new Promise((r) => setTimeout(r, 500))
+applyModelReasoning(appMigrate, {})
+await new Promise((r) => setTimeout(r, 2000))
+const migratedView = appMigrate.settings.describe().find((d) => String(d.ns) === 'dsh-experience-plugin')
+const legacyView = appMigrate.settings.describe().find((d) => String(d.ns) === 'dsh-hello-plugin')
+if (!migratedView) { console.log('FAIL: new namespace missing after migration'); process.exit(1) }
+if (!Array.isArray(migratedView.user?.families)) { console.log('FAIL: new namespace did not adopt legacy user config'); process.exit(1) }
+if (migratedView.user.families.length !== 1 || migratedView.user.families[0].id !== 'legacy-x') { console.log('FAIL: migrated family mismatch'); process.exit(1) }
+if (migratedView.user.defaultEfforts.medium !== 'medium') { console.log('FAIL: migrated defaultEfforts mismatch'); process.exit(1) }
+if (!legacyView) { console.log('FAIL: legacy namespace should stay registered for migration'); process.exit(1) }
+const migratedYaml = yamlMod.parse(readFileSync(MIGRATE_DOC, 'utf8'))
+const legacyTestModel = migratedYaml['llm-pi-ai'].providers.codex.models[0]
+console.log('migrated families:', migratedView.user.families.length, 'legacy-test-model:', JSON.stringify(legacyTestModel.reasoningEfforts))
+if (!legacyTestModel.reasoningEfforts || legacyTestModel.reasoningEfforts.high !== 'high') { console.log('FAIL: migrated family must inject legacy-test-model'); process.exit(1) }
+console.log('legacy config migration: OK')
+
+
 const app = new Context()
 try {
   app.plugin(FileSettingsProvider, { path: DOC, dshHome: HOME, watch: false })
@@ -65,7 +122,6 @@ console.log('namespace registered; revision =', desc.revision)
 
 // 2) 磁盘文档断言
 const after = readFileSync(DOC, 'utf8')
-const yamlMod = await import('yaml')
 const yaml = yamlMod.parse(after)
 const codexModels = yaml['llm-pi-ai'].providers.codex.models
 const effortOf = (id) => codexModels.find((m) => m.id === id).reasoningEfforts

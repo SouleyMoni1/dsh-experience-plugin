@@ -1,5 +1,5 @@
 /**
- * dsh-hello-plugin —— browser 半区入口。
+ * dsh-experience-plugin —— browser 半区入口。
  * 浏览器侧功能装配：每个 client 功能一个模块，在此按需挂载。
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -13,7 +13,7 @@ import { applyModelReasoningClient } from '../features/model-reasoning/client/in
 export const inject: string[] = ['slots', 'locale', 'connection', 'remote']
 
 /** 插件名（client 运行时诊断用）。 */
-export const name = 'dsh-hello-plugin-client'
+export const name = 'dsh-experience-plugin-client'
 
 /**
  * 插件主体：装配全部浏览器侧功能。

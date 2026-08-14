@@ -1,4 +1,4 @@
-# dsh-hello-plugin bundle patch —— 挂载到 profile 的插件行。
+# dsh-experience-plugin bundle patch —— 挂载到 profile 的插件行。
 #
 # 本地开发安装（link 方式，改动代码无需重新发布）：
 #   dsh plugin --profile web add link:<project-path>
@@ -11,4 +11,4 @@
 #   - client 半区：src/client/index.ts（设置页 UI），经 package.json 的 dsh.client 声明发现
 - insert:
     - id: hello
-      name: 'dsh-hello-plugin'
+      name: 'dsh-experience-plugin'

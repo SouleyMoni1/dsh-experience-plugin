@@ -1,5 +1,5 @@
 {
-  "name": "dsh-hello-plugin",
+  "name": "dsh-experience-plugin",
   "version": "0.2.0",
   "description": "DSH plugin: per-model reasoning levels for custom API models, with family presets and an official-settings-page editor.",
   "type": "module",

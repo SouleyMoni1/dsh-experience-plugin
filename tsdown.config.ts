@@ -6,7 +6,7 @@ import { defineConfig } from 'tsdown'
  *  - client 半区 -> lib/client.js（cjs，带 __ModuleLoader__.load 包裹，
  *    由浏览器端 dsh 客户端模块系统按 dsh.client 声明加载）
  */
-const PLUGIN_ID = 'dsh-hello-plugin'
+const PLUGIN_ID = 'dsh-experience-plugin'
 
 export default defineConfig([
   {

@@ -1,4 +1,4 @@
-# dsh-hello-plugin
+# dsh-experience-plugin
 
 DSH（DeepSeek Harness）功能插件：**功能按模块分配**（每个功能一个独立 feature 模块，
 host 半区 / client 半区各自装配），当前包含两个功能：
@@ -72,7 +72,7 @@ llm-pi-ai:
 没有 slot 注入点。插件按官方 slot 机制（`settings.section`）新增一个**"模型思考等级"**
 设置页（与官方 Models 页并列，UI 用官方设计 token），两块内容都可折叠：
 
-1. **系列配置**（存本插件 settings 命名空间 `dsh-hello-plugin`，schema 默认值 = 内置
+1. **系列配置**（存本插件 settings 命名空间 `dsh-experience-plugin`，schema 默认值 = 内置
    知识库，首次打开即为完整内置列表；设置页经官方通用 RPC 通道读写，因为
    dsh-host-apiproxy 不把第三方命名空间暴露给配置客户端）：
    - **默认配置**：关键词未命中任何系列时使用的等级（兜底）；
@@ -97,7 +97,7 @@ Models 页一致（describe → 编辑 → update），只读部署自动禁用�
 # cordis.patch.yml
 # 行 id "hello" 是 dsh plugin add 生成的行标识，与本插件功能无关。
 - id: hello
-  name: dsh-hello-plugin
+  name: dsh-experience-plugin
   config:
     modelReasoning:
       enabled: true        # 总开关
@@ -145,7 +145,7 @@ gpt-5.6-luna、grok-4.6 等）虽然在任何目录里都查不到，但族是�
 ## 目录结构
 
 ```text
-dsh-hello-plugin/
+dsh-experience-plugin/
 ├── package.json        # dsh.bundle.patch + dsh.client 声明（插件包的核心元数据）
 ├── cordis.patch.yml    # 插件行（- insert: - id / name）
 ├── tsconfig.json       # tsc -b 产出 lib/types/*.d.ts
@@ -187,6 +187,7 @@ node scripts/e2e-model-reasoning.mjs      # 可选：真实栈端到端验证
 ## 安装到 profile（本地开发）
 
 ```sh
+# 物理目录仍为 dsh-hello-plugin（历史路径），包名已改为 dsh-experience-plugin
 dsh plugin --profile web add link:<project-path>
 # 重启 dsh web 后生效
 ```
@@ -205,7 +206,7 @@ dsh plugin --profile web remove dsh-hello-plugin
 | 加策略/审计 | `ctx.on('tools/pre-execute')`（允许/拒绝/询问）、`tools/post-execute`（改写结果） |
 | 加 UI 部件 | `src/features/<name>/client.ts` 用 React + slots（参考官方 `dsh-client-ui-*` 包） |
 | 加设置项 | host 半区用 `installSettingsSection`（参考 `dsh-live-stats`） |
-| 发布到 npm | 改包名为你的 scope（如 `@you/dsh-hello-plugin`），`npm publish` 后即可 `dsh plugin add @you/dsh-hello-plugin` |
+| 发布到 npm | 本包名为 `dsh-experience-plugin`，`npm publish` 后即可 `dsh plugin add dsh-experience-plugin` |
 
 ## 参考
 

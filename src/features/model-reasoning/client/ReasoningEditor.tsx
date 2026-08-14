@@ -3,7 +3,7 @@
  *
  * 两块内容：
  *   1. 系列配置：默认兜底等级 + 系列规则（id / 名称 / 关键词正则 / 等级），
- *      存到本插件的 settings 命名空间（dsh-hello-plugin），schema 默认值 =
+ *      存到本插件的 settings 命名空间（dsh-experience-plugin），schema 默认值 =
  *      内置知识库，所以首次打开即为完整内置列表，可编辑、可增删。
  *   2. 模型等级：llm-pi-ai 下每个模型的等级开关（可折叠），保存时整体写回。
  *
@@ -104,7 +104,7 @@ export interface ReasoningEditorInjected {
 }
 
 /** 系列配置 RPC 通道。 */
-const MR_RPC_CHANNEL = '/dsh-hello-plugin'
+const MR_RPC_CHANNEL = '/dsh-experience-plugin'
 const MR_RPC_GET = 'model-reasoning/get'
 const MR_RPC_WRITE = 'model-reasoning/write'
 

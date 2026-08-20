@@ -116,9 +116,9 @@ interface FamilySettingsView {
   revision: number
 }
 
-/** 属性：inject 面 + owner（设置页提供 close）。 */
+/** 属性：inject 面 + owner（设置页提供 close；嵌入统一卡片时可不传）。 */
 export interface ReasoningEditorProps extends ReasoningEditorInjected {
-  close: () => void
+  close?: () => void
 }
 
 interface Row {
@@ -561,7 +561,9 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
         {savedAt !== 0 && saveError === '' && (
           <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-success-primary)' }}>{t('saved')}</span>
         )}
-        <Button variant="ghost" size="md" disabled={!writable || saving} onClick={close}>{t('cancel')}</Button>
+        {close !== undefined && (
+          <Button variant="ghost" size="md" disabled={!writable || saving} onClick={close}>{t('cancel')}</Button>
+        )}
         <Button variant="primary" size="md" disabled={!writable || saving} onClick={() => void save()}>
           {saving ? t('saving') : t('save')}
         </Button>

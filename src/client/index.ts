@@ -3,11 +3,15 @@
  * 浏览器侧功能装配：每个 client 功能一个模块，在此按需挂载。
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ConnectionHandle, IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+// 让官方包的 declare module 合并进 SlotMap：settings.plugin.item 槽位契约。
+import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { applyModelReasoningClient } from '../features/model-reasoning/client/index.js'
+import { ExperienceSettingsCard } from '../features/settings/client/ExperienceSettingsCard.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
- * slots：注册 UI slot（设置页）；locale：双语文案；connection：wire API；
+ * slots：注册 UI slot（插件配置页）；locale：双语文案；connection：wire API；
  * remote：接收 host 推送的失效事件。
  */
 export const inject: string[] = ['slots', 'locale', 'connection', 'remote']
@@ -15,12 +19,28 @@ export const inject: string[] = ['slots', 'locale', 'connection', 'remote']
 /** 插件名（client 运行时诊断用）。 */
 export const name = 'dsh-experience-plugin-client'
 
+/** 统一配置卡片在 settings.plugin.item 里的 key（对应 host 端 settings 命名空间）。 */
+const CARD_NS = 'dsh-experience-plugin'
+
 /**
  * 插件主体：装配全部浏览器侧功能。
  * @param ctx - 浏览器侧 client 上下文。
  */
 export function apply(ctx: ClientContext): void {
   applyModelReasoningClient(ctx)
-  // 未来的 client 侧功能在这里继续挂载：
-  // applyXxxClient(ctx)
+
+  const connection = ctx.get('connection') as ConnectionHandle | undefined
+  const t = ctx.locale.bind('model-reasoning')
+
+  ctx.effect(() => ctx.slots.inject('settings.plugin.item', () =>
+    ctx.slots.register({
+      name: 'settings.plugin.item',
+      key: CARD_NS,
+      inject: () => ({
+        api: connection?.api as Pick<IApiClient, 'settings'> | undefined,
+        rpc: connection?.rpc,
+        t,
+      }),
+    }, ExperienceSettingsCard),
+  ), 'dsh-experience-plugin: unified plugin config card')
 }

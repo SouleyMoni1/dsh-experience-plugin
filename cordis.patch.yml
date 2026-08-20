@@ -10,8 +10,8 @@
 #   dsh plugin --profile web remove dsh-experience-plugin
 #
 # 这一行同时挂载两个半区：
-#   - host 半区：src/index.ts（model-reasoning 注入 + RPC 通道），经包名解析
-#   - client 半区：src/client/index.ts（设置页 UI），经 package.json 的 dsh.client 声明发现
+#   - host 半区：src/index.ts（model-reasoning + cli-mimic），经包名解析
+#   - client 半区：src/client/index.ts（官方插件配置页统一卡片），经 package.json 的 dsh.client 声明发现
 - insert:
     - id: hello
       name: 'dsh-experience-plugin'

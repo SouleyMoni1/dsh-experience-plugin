@@ -1,94 +1,133 @@
 /**
- * DSH 体验插件 —— 官方插件配置页统一卡片。
+ * DSH 体验插件 —— 官方插件配置页卡片。
  *
- * 一个下拉框切换模块：模型思考等级 / CLI 请求模拟。这样合并后的所有配置
- * 都集中在一个卡片里，不用在设置页和插件配置页之间来回找。
+ * 每个功能一个可收缩模块，沿用官方插件配置页的展开/收起交互；
+ * 不使用下拉框切换，两个模块可以同时看到并分别展开。
  */
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import type { CSSProperties } from 'react'
+import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ReasoningEditor } from '../../model-reasoning/client/ReasoningEditor.js'
 import { CliMimicEditor } from '../../cli-mimic/client/CliMimicEditor.js'
 
-type ModuleId = 'model-reasoning' | 'cli-mimic'
-
-const MODULES: Array<{ id: ModuleId; label: string }> = [
-  { id: 'model-reasoning', label: '模型思考等级' },
-  { id: 'cli-mimic', label: 'CLI 请求模拟' },
-]
-
-const cardStyle: Record<string, string> = {
-  border: '1px solid var(--dsw-alias-border-l2, #d8dee4)',
-  background: 'var(--dsw-alias-bg-layer-3, #ffffff)',
-  borderRadius: '8px',
-  listStyle: 'none',
+interface ModuleCardProps {
+  title: string
+  description: string
+  defaultOpen?: boolean
+  children: ReactNode
 }
 
-const headerStyle: Record<string, string> = {
-  display: 'flex',
+const cardStyle: CSSProperties = {
+  border: '1px solid var(--dsw-alias-border-l2)',
+  background: 'var(--dsw-alias-bg-layer-3)',
+  borderRadius: '12px',
+  listStyle: 'none',
+  transition: 'border-color .16s, background .16s',
+}
+
+const cardOpenStyle: CSSProperties = {
+  background: 'var(--dsw-alias-bg-layer-2)',
+  borderColor: 'var(--dsw-alias-label-dimmed)',
+}
+
+const headerStyle: CSSProperties = {
+  appearance: 'none',
+  width: '100%',
+  font: 'inherit',
+  color: 'inherit',
+  textAlign: 'left',
+  cursor: 'pointer',
+  background: 'transparent',
+  border: '0',
+  borderRadius: '12px',
   alignItems: 'center',
   gap: '12px',
   padding: '14px 16px',
-  flexWrap: 'wrap',
+  display: 'flex',
 }
 
-const bodyStyle: Record<string, string> = {
-  borderTop: '1px solid var(--dsw-alias-border-l2, #d8dee4)',
+const headTextStyle: CSSProperties = {
+  flexDirection: 'column',
+  flex: 1,
+  gap: '4px',
+  minWidth: 0,
+  display: 'flex',
+}
+
+const titleStyle: CSSProperties = {
+  color: 'var(--dsw-alias-label-primary)',
+  fontSize: 15,
+  fontWeight: 600,
+  lineHeight: 1.4,
+}
+
+const descriptionStyle: CSSProperties = {
+  color: 'var(--dsw-alias-label-tertiary)',
+  fontSize: 13,
+  lineHeight: 1.5,
+}
+
+const chevronStyle: CSSProperties = {
+  color: 'var(--dsw-alias-label-tertiary)',
+  flex: 'none',
+  display: 'inline-flex',
+  transition: 'transform .16s',
+}
+
+const bodyStyle: CSSProperties = {
+  borderTop: '1px solid var(--dsw-alias-border-l2)',
   margin: '0 16px',
-  padding: '14px 0',
+  padding: '14px 0 8px',
 }
 
-const selectStyle: Record<string, string> = {
-  width: '100%',
-  boxSizing: 'border-box',
-  height: '38px',
-  padding: '0 32px 0 10px',
-  borderRadius: '8px',
-  border: '1px solid var(--dsw-alias-border-l2, #d0d7de)',
-  background: 'var(--dsw-alias-bg-layer-3, #ffffff)',
-  color: 'var(--dsw-alias-label-primary, #1f2328)',
-  fontSize: '13px',
-  fontFamily: 'inherit',
-  appearance: 'none',
-  cursor: 'pointer',
+function ModuleCard({ title, description, defaultOpen = false, children }: ModuleCardProps): any {
+  const [open, setOpen] = useState(defaultOpen)
+
+  return (
+    <li style={open ? { ...cardStyle, ...cardOpenStyle } : cardStyle}>
+      <button
+        type="button"
+        style={headerStyle}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <span style={headTextStyle}>
+          <span style={titleStyle}>{title}</span>
+          <span style={descriptionStyle}>{description}</span>
+        </span>
+        <span style={{ ...chevronStyle, transform: open ? 'rotate(180deg)' : 'none' }}>
+          <IconChevronDownOutline14 />
+        </span>
+      </button>
+      {open ? <div style={bodyStyle}>{children}</div> : null}
+    </li>
+  )
 }
 
-export interface ExperienceSettingsCardProps {
+export interface ModelReasoningCardProps {
   api: any
   rpc: any
   t: any
 }
 
-export function ExperienceSettingsCard(props: ExperienceSettingsCardProps): any {
+export function ModelReasoningCard(props: ModelReasoningCardProps): any {
   const { api, rpc, t } = props
-  const [module, setModule] = useState<ModuleId>('model-reasoning')
-
   return (
-    <li style={cardStyle}>
-      <div style={headerStyle}>
-        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-          <span style={{ color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>
-            DSH 体验插件配置
-          </span>
-          <span style={{ color: 'var(--dsw-alias-label-tertiary, #6e7781)', fontSize: 13, lineHeight: 1.5 }}>
-            模型思考等级 · CLI 请求模拟
-          </span>
-        </div>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 220 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--dsw-alias-label-primary, #24292f)' }}>配置模块</span>
-          <select
-            style={selectStyle}
-            value={module}
-            onChange={(event) => setModule(event.target.value as ModuleId)}
-          >
-            {MODULES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-        </label>
-      </div>
+    <ModuleCard title={t('nav')} description={t('cardDescription')}>
+      <ReasoningEditor api={api} rpc={rpc} t={t} />
+    </ModuleCard>
+  )
+}
 
-      <div style={bodyStyle}>
-        {module === 'model-reasoning'
-          ? <ReasoningEditor api={api} rpc={rpc} t={t} />
-          : <CliMimicEditor api={api} />}
-      </div>
-    </li>
+export interface CliMimicCardProps {
+  api: any
+}
+
+export function CliMimicCard(props: CliMimicCardProps): any {
+  const { api } = props
+  return (
+    <ModuleCard title="CLI 请求模拟" description="本地代理 + fetch 拦截，把 DSH 请求伪装成 CLI 客户端">
+      <CliMimicEditor api={api} />
+    </ModuleCard>
   )
 }

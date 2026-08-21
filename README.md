@@ -1,6 +1,6 @@
 # dsh-experience-plugin
 
-DSH（DeepSeek Harness）功能插件：合并模型思考等级与 CLI 请求模拟，两个模块的配置统一放在官方插件配置页的一张卡片里，用下拉框切换。
+DSH（DeepSeek Harness）功能插件：合并模型思考等级与 CLI 请求模拟，两个模块的配置在官方插件配置页各占一个可收缩卡片。
 
 ## 功能
 
@@ -8,7 +8,7 @@ DSH（DeepSeek Harness）功能插件：合并模型思考等级与 CLI 请求�
 - 按模型族自动匹配：deepseek / gpt-5 / grok / claude / glm / qwen / gemini / llama / mistral 等
 - 支持自定义系列预设、协议级覆盖、按系列刷新
 - CLI 请求模拟：本地 HTTP 代理 + 全局 fetch 拦截，把 DSH 模型请求伪装成 Codex / Claude Code / Grok CLI
-- 官方插件配置页统一卡片：`模型思考等级` / `CLI 请求模拟` 两个模块一个下拉切换
+- 官方插件配置页两个可收缩模块：`模型思考等级` / `CLI 请求模拟`
 
 ## 安装
 

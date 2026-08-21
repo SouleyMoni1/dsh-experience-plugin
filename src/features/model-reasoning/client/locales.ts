@@ -6,7 +6,7 @@
 
 /** 本设置页的文案键（字符串字面量联合）。 */
 export type ModelReasoningLocaleKey =
-  | 'nav' | 'title' | 'intro' | 'readOnly' | 'loadError' | 'empty'
+  | 'nav' | 'title' | 'intro' | 'cardDescription' | 'readOnly' | 'loadError' | 'empty'
   | 'noModels' | 'provider' | 'api' | 'model' | 'efforts' | 'wire'
   | 'offHint' | 'save' | 'saving' | 'saved' | 'saveError' | 'cancel'
   | 'levelOff' | 'levelMinimal' | 'levelLow' | 'levelMedium' | 'levelHigh'
@@ -28,6 +28,7 @@ export const zh: Record<ModelReasoningLocaleKey, string> = {
   nav: '模型思考等级',
   title: '模型思考等级',
   intro: '为每个模型配置可选的思考等级（写入 settings.yaml 的 reasoningEfforts）。勾选即开放该等级，发送值是该等级发给网关的 wire 参数；未勾选的等级不会出现在模型选择器里。',
+  cardDescription: '按模型族与具体模型配置思考等级',
   readOnly: '当前设置只读，无法保存。',
   loadError: '加载失败：{message}',
   empty: 'llm-pi-ai 下还没有可配置的模型。',
@@ -75,6 +76,7 @@ export const en: Record<ModelReasoningLocaleKey, string> = {
   nav: 'Model Reasoning',
   title: 'Model Reasoning Levels',
   intro: 'Choose which reasoning levels each model offers (writes reasoningEfforts into settings.yaml). Check a level to enable it; the wire value is the parameter sent to the gateway. Unchecked levels stay hidden in the model picker.',
+  cardDescription: 'Configure reasoning levels by family and per model',
   readOnly: 'Settings are read-only; saving is disabled.',
   loadError: 'Load failed: {message}',
   empty: 'No configurable models under llm-pi-ai yet.',

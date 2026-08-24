@@ -112,11 +112,22 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
   injectCss()
 
   const open = (path: string): void => {
-    void workspaces.openPath(path).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error)
-      console.error('[open-folder] failed to open folder:', path, error)
-      showErrorToast(`无法打开文件夹：${message}`)
+    void fetch('/api/open-folder', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path })
     })
+      .then(async (res) => {
+        const payload = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+        if (!res.ok || payload?.ok !== true) {
+          throw new Error(payload?.error ?? `HTTP ${res.status}`)
+        }
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error('[open-folder] failed to open folder:', path, error)
+        showErrorToast(`无法打开文件夹：${message}`)
+      })
   }
 
   /** 给一行注入按钮；已注入或非真实 workspace 行跳过。 */

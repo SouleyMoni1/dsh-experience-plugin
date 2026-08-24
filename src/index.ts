@@ -2,8 +2,9 @@
  * dsh-experience-plugin —— host 半区入口。
  *
  * 功能分配（每个功能一个独立模块，新增功能在此装配）：
- *   - features/model-reasoning/自定义 API 模型思考等级（自动注入 + 系列配置 + 自由配置）
+ *   - features/model-reasoning/大模型思考等级（自动注入 + 系列配置 + 自由配置）
  *   - features/cli-mimic/CLI 请求模拟（本地代理 + fetch 拦截 + 配置工具）
+ *   - features/open-folder/侧边栏项目行「在文件夹中显示」（host 调系统文件管理器）
  *
  * 插件配置示例（cordis.patch.yml 或 ~/.dsh/settings.yaml）：
  * ```yaml
@@ -28,6 +29,7 @@ import { applyModelReasoning } from './features/model-reasoning/host.js'
 import type { ModelReasoningConfig } from './features/model-reasoning/config.js'
 import { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS } from './features/model-reasoning/defaults.js'
 import { applyCliMimic } from './features/cli-mimic/host.js'
+import { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
 
 // 工具导出（测试 / 高级用法）：
 export { buildInjectionPatch } from './features/model-reasoning/ops.js'
@@ -36,6 +38,7 @@ export { MR_RPC_CHANNEL, MR_RPC_GET, MR_RPC_WRITE, dispatchMrRpc } from './featu
 export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, FAMILY_PRESETS, BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS } from './features/model-reasoning/defaults.js'
 export type { ReasoningEfforts } from './features/model-reasoning/defaults.js'
 export { CLI_MIMIC_NS, Config as CliMimicConfig } from './features/cli-mimic/host.js'
+export { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
 
 /** 插件配置：每个功能一段。 */
 export interface Config {
@@ -43,6 +46,8 @@ export interface Config {
   hello?: Record<string, unknown>
   /** model-reasoning 功能配置。 */
   modelReasoning?: ModelReasoningConfig
+  /** open-folder 功能配置（默认开启）。 */
+  openFolder?: OpenFolderConfig
 }
 
 /**
@@ -76,10 +81,13 @@ export const Config = z.object({
     providers: [],
     upgradeLegacy: true,
   }),
+  openFolder: z.object({
+    enabled: z.boolean(),
+  }).default({ enabled: true }),
 }) as unknown as z<Config>
 
 /** 本插件需要的服务（各功能服务的并集）。 */
-export const inject = ['settings', 'tools', 'credentials', 'llm'] as const
+export const inject = ['settings', 'tools', 'credentials', 'llm', 'webServer', 'workspaceRegistry'] as const
 
 /** 插件名（日志与诊断用）。 */
 export const name = 'dsh-experience-plugin'
@@ -92,4 +100,5 @@ export const name = 'dsh-experience-plugin'
 export function apply(ctx: Context, config: Config = {}): void {
   applyModelReasoning(ctx, config.modelReasoning)
   applyCliMimic(ctx as Parameters<typeof applyCliMimic>[0])
+  applyOpenFolderHost(ctx, config.openFolder ?? { enabled: true })
 }

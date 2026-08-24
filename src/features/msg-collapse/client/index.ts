@@ -289,8 +289,10 @@ function findOlderButton(scroll: HTMLElement): HTMLButtonElement | null {
   return older.querySelector<HTMLButtonElement>('button')
 }
 
-/** 自动把历史会话全部加载出来：反复点「加载更早」直到按钮消失。
+/** 自动加载历史到最多 30 条用户消息：反复点「加载更早」直到达到上限或按钮消失。
+ *  达到 30 条后**保留**原版「加载更早」按钮，由用户手动点继续加载。
  *  带次数上限防死循环；每轮等待 scrollHeight 变化后再点下一次。 */
+const AUTO_LOAD_USERS = 30
 let loadAllRunning = false
 function loadAllHistory(): void {
   const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
@@ -309,7 +311,15 @@ function loadAllHistory(): void {
     }
     const btn = findOlderButton(scroll)
     if (btn === null) {
-      // 全部加载完成
+      // 全部加载完成（没有更早历史了）
+      loadAllRunning = false
+      applyCollapse()
+      return
+    }
+    // 数已加载的用户消息数
+    const userCount = scroll.querySelectorAll('.gdEzaW_userRow').length
+    if (userCount >= AUTO_LOAD_USERS) {
+      // 已达到 30 条上限：停止自动加载，保留原版「加载更早」按钮
       loadAllRunning = false
       applyCollapse()
       return

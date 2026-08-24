@@ -103,6 +103,21 @@ function getVault(): HTMLElement {
   return el
 }
 
+/** 给用户消息分配稳定的回合 key。
+ *  背景：DSH 虚拟滚动/新消息插入会重建 flowItem 容器，把我们插的 bar 冲掉；
+ *  此时 work 全在 vault，collectWorkItems 扫不到 → work.length===0 → bar 永不重建
+ *  （按钮和分界线消失的概率 bug）。用回合 key 标记 work，bar 丢失后可从 vault
+ *  按 key 恢复 work 并重建 bar。 */
+let roundIdCounter = 0
+function roundKeyOf(userEl: Element): string {
+  let k = userEl.getAttribute('data-dsh-round-key')
+  if (k === null) {
+    k = String(++roundIdCounter)
+    userEl.setAttribute('data-dsh-round-key', k)
+  }
+  return k
+}
+
 /** 收集一个回合里所有处理过程 flowItem（不含用户消息、不含最终回复、不含状态行）。 */
 function collectWorkItems(start: number, end: number, items: HTMLElement[]): HTMLElement[] {
   const out: HTMLElement[] = []
@@ -172,9 +187,8 @@ interface BarState {
 /** 给一个回合注入折叠横条（插在第一个处理过程上方）。 */
 function setupRound(start: number, end: number, items: HTMLElement[]): void {
   const firstWork = findFirstWork(start, end, items)
-  if (firstWork === null) return // 没有处理过程，跳过
   // 已注入检查：紧邻前一个兄弟是横条（同一回合的 bar 已在）
-  const prevEl = firstWork.previousElementSibling
+  const prevEl = firstWork !== null ? firstWork.previousElementSibling : null
   const existingBar = prevEl !== null && prevEl.classList.contains(BAR_CLASS)
     ? prevEl as HTMLElement
     : null
@@ -185,7 +199,20 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
     return
   }
 
-  const work = collectWorkItems(start, end, items)
+  // 回合 key：从本回合用户消息取（userRow 元素引用稳定，虚拟滚动不重建）
+  const userEl = items[start].querySelector('.gdEzaW_userRow')
+  const roundKey = userEl !== null ? roundKeyOf(userEl) : null
+
+  // 收集 work：优先从对话区扫；若扫不到（bar 被 DSH 重建冲掉、work 全在 vault），
+  // 从 vault 按回合 key 恢复——否则 work.length===0 直接 return，bar 永不重建
+  // （按钮和分界线消失的概率 bug）。
+  let work = collectWorkItems(start, end, items)
+  let recoveredFromVault = false
+  if (work.length === 0 && roundKey !== null) {
+    work = Array.from(getVault().querySelectorAll<HTMLElement>(`.${WORK_CLASS}`))
+      .filter((w) => w.getAttribute('data-dsh-round-key') === roundKey)
+    recoveredFromVault = work.length > 0
+  }
   const finalReply = findFinalReply(start, end, items)
   if (work.length === 0) return // 没有可折叠内容
 
@@ -209,23 +236,30 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   btn.append(arrow, label)
   bar.appendChild(btn)
 
-  // 插到第一个处理过程之前
-  if (firstWork.parentElement !== null) {
+  // 插到第一个处理过程之前；若 work 全在 vault（bar 被 DSH 重建冲掉后恢复），
+  // 插到本回合用户消息 flowItem 之后（用户消息与最终回复之间）。
+  if (firstWork !== null && firstWork.parentElement !== null) {
     firstWork.parentElement.insertBefore(bar, firstWork)
+  } else {
+    const userFlow = items[start]
+    if (userFlow.parentElement !== null) {
+      userFlow.parentElement.insertBefore(bar, userFlow.nextElementSibling)
+    }
   }
 
-  // 默认状态：最新回合展开，历史回合折叠
+  // 默认状态：最新回合展开，历史回合折叠；从 vault 恢复的 bar 保持折叠
   const isLastRound = (() => {
     const userRows: number[] = []
     items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) userRows.push(i) })
     const lastStart = userRows[userRows.length - 1]
     return start === lastStart
   })()
+  const collapsed = recoveredFromVault || !isLastRound
 
   const state: BarState = {
     work,
     placeMap: new Map(),
-    collapsed: !isLastRound,
+    collapsed,
     animating: false,
     base,
     label,
@@ -263,6 +297,8 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
         const beforeTop = fr !== null ? fr.getBoundingClientRect().top : 0
         for (const w of toHide) {
           w.classList.remove(FADING_CLASS)
+          // 打上回合 key 标记：bar 被 DSH 重建冲掉后，可从 vault 按 key 恢复
+          if (roundKey !== null) w.setAttribute('data-dsh-round-key', roundKey)
           getVault().appendChild(w)
         }
         bar.classList.add(COLLAPSED_CLASS)
@@ -326,6 +362,10 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
           } else {
             p.parent.appendChild(w)
           }
+        } else if (fr !== null && fr.parentElement !== null) {
+          // placeMap 无记录（bar 被 DSH 重建冲掉后从 vault 恢复的场景）：
+          // 把 work 插回最终回复之前（倒序恢复，后面的先就位）
+          fr.parentElement.insertBefore(w, fr)
         } else {
           getVault().appendChild(w)
         }

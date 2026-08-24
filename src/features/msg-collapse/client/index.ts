@@ -220,19 +220,27 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   ;(bar as unknown as { __state: BarState }).__state = state
 
   const apply = () => {
-    for (const w of state.work) {
-      w.classList.add(WORK_CLASS)
-      // 判断节点是否在对话区（vault 也在 body 下 isConnected=true，必须用 closest 区分）
-      const inScroll = w.closest('.wSkVaW_scrollBody') !== null
-      if (state.collapsed && inScroll) {
-        // 记录原位，移入隐藏仓库（display:none，不参与布局/渲染/重排）
+    if (state.collapsed) {
+      // 折叠：正序把对话区节点移入隐藏仓库（记录原位；移走时 next 兄弟还在 DOM，引用准确）
+      for (const w of state.work) {
+        w.classList.add(WORK_CLASS)
+        const inScroll = w.closest('.wSkVaW_scrollBody') !== null
+        if (!inScroll) continue // 已在仓库
         state.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
         getVault().appendChild(w)
-      } else if (!state.collapsed && !inScroll) {
-        // 插回原位置。注意：next 兄弟可能也被折叠进了 vault（isConnected=true 但不在原父下），
-        // 必须确认 next 真的还在原父容器下，否则 insertBefore 会抛 NotFoundError。
+      }
+    } else {
+      // 展开：必须**倒序**恢复——后面的兄弟先就位，前面的节点才能用
+      // insertBefore 精确插到它前面。正序会因 next 还在仓库而 appendChild
+      // 兜底，导致节点被追加到父容器末尾（跑到回复结果下方）的 bug。
+      for (let i = state.work.length - 1; i >= 0; i--) {
+        const w = state.work[i]
+        w.classList.add(WORK_CLASS)
+        const inScroll = w.closest('.wSkVaW_scrollBody') !== null
+        if (inScroll) continue // 已在对话区
         const p = state.placeMap.get(w)
         if (p !== undefined && p.parent !== null && p.parent.isConnected) {
+          // next 兄弟必须真的还在原父容器下才能 insertBefore，否则兜底
           const nextOk = p.next !== null && p.next.parentElement === p.parent
           if (nextOk) {
             p.parent.insertBefore(w, p.next as Element)

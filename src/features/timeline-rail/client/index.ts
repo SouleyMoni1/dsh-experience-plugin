@@ -39,8 +39,14 @@ const TICK_GAP = 12
 const SCROLL_PAD = 120
 /** 时间轴最多显示的用户消息条数（从最新往前数）。 */
 const MAX_TICKS = 30
-/** 自动补载历史的最大点击次数（防止死循环）。 */
-const MAX_LOAD_MORE = 15
+/** 自动补载历史的最大点击次数。
+ *  实测根因：补载找不到用户消息（历史全被压缩成 compactionRow）时会疯狂点
+ *  「加载更早」直到把整个会话拖进 DOM → DOM 爆炸 → 帧数暴跌。
+ *  设小额 + loadMoreHistory 内的 flowItem 总量上限（>MAX_FLOW_ITEMS 拒绝），
+ *  双保险防全量加载。用户也可手动点 rail 顶部「加载更早」按需补载。 */
+const MAX_LOAD_MORE = 3
+/** 会话 flowItem 总量上限：超过即停止自动补载（防 DOM 爆炸，保帧率）。 */
+const MAX_FLOW_ITEMS = 400
 /** DOM 观察器防抖间隔（ms），压制会话内高频变更导致的重复渲染。 */
 const OBS_DEBOUNCE_MS = 250
 
@@ -195,13 +201,15 @@ export function applyTimelineRail(ctx: ClientContext): void {
   let autoLoadCount = 0
 
   /** 当前数据缓存（供 hover/active 计算）。 */
-  let ticksCache: Array<{ row: HTMLElement; top: number; question: string; reply: string }> = []
+  let ticksCache: Array<{ row: HTMLElement; rowTop: number; top: number; question: string; reply: string }> = []
   /** 文本提取缓存：行元素 → { q, r }，行没变不重算（省掉大量 querySelector/textContent）。 */
   const textCache = new Map<HTMLElement, { q: string; r: string }>()
   /** 上一次渲染的消息行签名（数量 + 首尾消息 offsetTop），用于跳过无变化时的全量重绘。 */
   let lastSig = ''
   /** 与 lastSig 对应的消息行数组（滚动时复用，避免反复全量扫描）。 */
   let lastRows: HTMLElement[] = []
+  /** 上次计算的 active 索引（滚动时没变就零写入，省 DOM 操作）。 */
+  let lastActiveIdx = -1
   /** MutationObserver 防抖计时器。 */
   let obsTimer = 0
 
@@ -260,8 +268,10 @@ export function applyTimelineRail(ctx: ClientContext): void {
     return all.slice(-MAX_TICKS)
   }
 
-  /** 收集横线信息（按顺序，聚合排列；消息多时自动缩间距防溢出；文本走缓存）。 */
-  const collectTicks = (scroll: HTMLElement, trackH: number): Array<{ row: HTMLElement; top: number; question: string; reply: string }> => {
+  /** 收集横线信息（按顺序，聚合排列；消息多时自动缩间距防溢出；文本走缓存）。
+   *  每条横线记录 rowTop（消息行在滚动内容里的文档坐标，滚动不变化），
+   *  供滚动热路径用 scrollTop 判定可见性，不依赖行是否还在 DOM（虚拟滚动安全）。 */
+  const collectTicks = (scroll: HTMLElement, trackH: number): Array<{ row: HTMLElement; rowTop: number; top: number; question: string; reply: string }> => {
     const rows = collectUserMessages(scroll)
     const n = rows.length
     if (n === 0) return []
@@ -278,6 +288,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
       }
       return {
         row,
+        rowTop: row.offsetTop,
         top: startTop + i * gap,
         question: cached.q,
         reply: cached.r
@@ -285,39 +296,52 @@ export function applyTimelineRail(ctx: ClientContext): void {
     })
   }
 
-  /** 计算当前会话停留的横线索引（视口内最靠下的可见用户消息）。
-   *  直接吃已收集的行数组，避免重复全量扫描。 */
-  const activeIndex = (rows: HTMLElement[], st: number, viewBottom: number): number => {
-    let idx = -1
-    for (let i = 0; i < rows.length; i++) {
-      if (rows[i].offsetTop <= viewBottom - 40) idx = i
+  /** 计算当前会话停留的横线索引。
+   *  用 scrollTop（滚动坐标）对每条横线记录的 rowTop（文档坐标，滚动不变）判定：
+   *  ① 视口内可见的消息 → 取最靠下的那条；
+   *  ② 视口内没有（中间全是思考/工具调用行）→ 取视口上方最近的那条；
+   *  ③ 连上方都没有（滚到最顶）→ 取最旧一条。
+   *  全程零 DOM 查询、零 getBoundingClientRect，虚拟滚动卸载行也不影响。 */
+  const activeIndex = (scroll: HTMLElement, ticks: Array<{ rowTop: number }>): number => {
+    const st = scroll.scrollTop
+    const viewBottom = st + (scroll.clientHeight || 1) - 40
+    let visibleIdx = -1
+    let aboveIdx = -1
+    for (let i = 0; i < ticks.length; i++) {
+      const rt = ticks[i].rowTop
+      if (rt <= viewBottom) visibleIdx = i
+      if (rt < st) aboveIdx = i
     }
-    return idx
+    if (visibleIdx !== -1) return visibleIdx
+    if (aboveIdx !== -1) return aboveIdx
+    return ticks.length > 0 ? 0 : -1
   }
 
-  /** 官方「加载更早」按钮是否存在。 */
-  const hasOlderButton = (scroll: HTMLElement): boolean => {
-    const btn = Array.from(scroll.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
-      /加载更早/.test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? '')))
-    return btn !== undefined
+  /** 官方「加载更早」按钮是否存在：只查 .Md3f7G_older 容器（廉价，不扫全部 button）。 */
+  const findOlderButton = (scroll: HTMLElement): HTMLButtonElement | null => {
+    const older = scroll.querySelector<HTMLElement>('.Md3f7G_older')
+    if (older === null) return null
+    return older.querySelector<HTMLButtonElement>('button')
   }
 
-  /** 触发官方「加载更早」，轮询等待内容插入后用锚点补偿滚动位置（视口不跳）。 */
+  /** 触发官方「加载更早」，轮询等待内容插入后用视口坐标锚点补偿滚动位置（视口不跳）。
+   *  带 flowItem 总量保护：会话行数超过 MAX_FLOW_ITEMS 拒绝补载（防 DOM 爆炸保帧率）。 */
   const loadMoreHistory = (): void => {
     const scroll = scrollEl
     if (scroll === null || loadingHistory) return
-    const btn = Array.from(scroll.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
-      /加载更早/.test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? '')))
-    if (btn === undefined) return
-    // 锚点：取视口内第一条可见消息（flowItem）作为视觉锚
-    const viewTop = scroll.scrollTop
-    const viewBottom = viewTop + (scroll.clientHeight || 1)
+    // DOM 总量保护：会话已很大时不再补载（帧率优先）
+    if (scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem').length >= MAX_FLOW_ITEMS) return
+    const btn = findOlderButton(scroll)
+    if (btn === null) return
+    // 锚点：取视口内第一条可见消息（flowItem）作为视觉锚（视口坐标）
+    const sRect = scroll.getBoundingClientRect()
+    const viewBottom = sRect.bottom
     const candidates = Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
-      const t = f.offsetTop
-      return t >= viewTop && t <= viewBottom - 10
+      const r = f.getBoundingClientRect()
+      return r.top >= sRect.top && r.top <= viewBottom - 10
     })
     const anchor = candidates[0] ?? null
-    const anchorViewY = anchor !== null ? anchor.offsetTop - viewTop : 0
+    const anchorViewY = anchor !== null ? anchor.getBoundingClientRect().top - sRect.top : 0
     const beforeH = scroll.scrollHeight
     loadingHistory = true
     btn.click()
@@ -327,10 +351,11 @@ export function applyTimelineRail(ctx: ClientContext): void {
       tries++
       if (scroll.scrollHeight !== beforeH || tries > 40) {
         if (anchor !== null && anchor.isConnected) {
-          scroll.scrollTop = Math.max(0, anchor.offsetTop - anchorViewY)
+          const ar = anchor.getBoundingClientRect()
+          scroll.scrollTop = Math.max(0, scroll.scrollTop + (ar.top - sRect.top) - anchorViewY)
         }
         loadingHistory = false
-        render()
+        renderFull()
         return
       }
       setTimeout(poll, 120)
@@ -338,8 +363,8 @@ export function applyTimelineRail(ctx: ClientContext): void {
     setTimeout(poll, 120)
   }
 
-  /** 重绘所有短横线。 */
-  const render = (): void => {
+  /** 全量重绘：DOM 变化时（observer）才调用。扫描消息行 + 重建横线 + 同步补载触发器。 */
+  const renderFull = (): void => {
     const ctx2 = ensureRail()
     if (ctx2 === null) return
     const { rail, scroll } = ctx2
@@ -364,50 +389,42 @@ export function applyTimelineRail(ctx: ClientContext): void {
       }
       const ticks = collectTicks(scroll, trackH)
       ticksCache = ticks
-      const activeIdx = activeIndex(lastRows, scroll.scrollTop, scroll.scrollTop + (scroll.clientHeight || 1))
-      const keep = new Set<HTMLElement>()
+      // 全量重建：先清空旧横线，再按数组顺序重建。
+      // 不依赖 data-top key 复用（两个 tick.top 舍入成同 key 会导致 idx 错位），
+      // 30 个元素成本 <1ms，idx 永远 = 数组索引，彻底根治高亮错位。
+      // 高亮不在此处设置（全 false）——统一由下方 updateActive 单一数据源计算，
+      // 避免与滚动路径双源打架、覆盖正确高亮。
+      for (const old of Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))) {
+        old.remove()
+      }
       ticks.forEach((tick, i) => {
-        const key = String(Math.round(tick.top))
-        let el = track.querySelector<HTMLButtonElement>(`.${ITEM_CLASS}[data-top="${key}"]`)
-        if (el === null) {
-          el = document.createElement('button')
-          el.type = 'button'
-          el.className = ITEM_CLASS
-          el.dataset.top = key
-          el.dataset.idx = String(i)
-          el.style.top = `${tick.top}px`
-          el.addEventListener('mouseenter', () => onHover(el as HTMLButtonElement, i))
-          el.addEventListener('mouseleave', () => onLeave())
-          el.addEventListener('click', () => {
-            if (scrollEl === null) return
-            const target = tick.row.offsetTop - SCROLL_PAD
-            scrollEl.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
-          })
-          track.appendChild(el)
-        } else {
-          el.dataset.idx = String(i)
-        }
-        // 当前会话高亮（仅非 hover 时）
-        el.dataset.active = String(hoverIdx === -1 && i === activeIdx)
+        const el = document.createElement('button')
+        el.type = 'button'
+        el.className = ITEM_CLASS
+        el.dataset.top = String(Math.round(tick.top))
+        el.dataset.idx = String(i)
+        el.style.top = `${tick.top}px`
+        el.addEventListener('mouseenter', () => onHover(el as HTMLButtonElement, i))
+        el.addEventListener('mouseleave', () => onLeave())
+        el.addEventListener('click', () => {
+          if (scrollEl === null) return
+          const target = tick.rowTop - SCROLL_PAD
+          scrollEl.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
+        })
+        el.dataset.active = 'false'
         el.setAttribute('aria-label', tick.question)
         el.title = tick.question
-        keep.add(el)
+        track.appendChild(el)
       })
-      // 移除多余横线
-      for (const el of Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))) {
-        if (!keep.has(el)) el.remove()
-      }
+      // 重建完统一由单一数据源设置高亮
+      updateActive(track, scroll)
     } else {
       // 行集合没变：只更新 active 高亮（跟随滚动），不重建横线
-      const activeIdx = activeIndex(lastRows, scroll.scrollTop, scroll.scrollTop + (scroll.clientHeight || 1))
-      const items = track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`)
-      for (const el of items) {
-        el.dataset.active = String(hoverIdx === -1 && Number(el.dataset.idx ?? -1) === activeIdx)
-      }
+      updateActive(track, scroll)
     }
     // 顶部「加载更早」触发器：有历史可加载时显示（每次渲染都同步）
     let moreEl = track.querySelector<HTMLButtonElement>(`.${MORE_CLASS}`)
-    if (hasOlderButton(scroll)) {
+    if (findOlderButton(scroll) !== null) {
       if (moreEl === null) {
         moreEl = document.createElement('button')
         moreEl.type = 'button'
@@ -426,10 +443,38 @@ export function applyTimelineRail(ctx: ClientContext): void {
       (ticksCache?.length ?? 0) < MAX_TICKS &&
       autoLoadCount < MAX_LOAD_MORE &&
       !loadingHistory &&
-      hasOlderButton(scroll)
+      findOlderButton(scroll) !== null
     ) {
       autoLoadCount++
       window.setTimeout(() => loadMoreHistory(), 300)
+    }
+  }
+
+  /** 轻量更新（滚动热路径）：零 DOM 扫描，只更新 active 高亮。
+   *  行集合与横线都来自缓存，滚动时完全不碰 querySelectorAll。 */
+  const renderLight = (): void => {
+    const ctx2 = ensureRail()
+    if (ctx2 === null) return
+    const { rail, scroll } = ctx2
+    const track = rail.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
+    if (track === null) return
+    updateActive(track, scroll)
+  }
+
+  /** 只更新 active 高亮（滚动热路径）。
+   *  实时 collectUserMessages（fast-path 单查询 + slice(30)）拿当前 DOM 行，
+   *  用 offsetTop（文档坐标，不随滚动变）+ scrollTop 判定可见性。
+   *  ——单一数据源：与 renderFull 重建一致，无双源冲突。
+   *  虚拟滚动重挂行瞬间行可能为 0，此时跳过（保留现有高亮，等行回来再算），
+   *  避免重建把正确高亮覆盖成空。每帧成本 <0.5ms。 */
+  const updateActive = (track: HTMLElement, scroll: HTMLElement): void => {
+    const rows = collectUserMessages(scroll)
+    if (rows.length === 0) return // 虚拟滚动重挂瞬间，跳过保留现状
+    const activeIdx = activeIndex(scroll, rows.map((r) => ({ rowTop: r.offsetTop })))
+    lastActiveIdx = activeIdx
+    const items = track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`)
+    for (const el of items) {
+      el.dataset.active = String(hoverIdx === -1 && Number(el.dataset.idx ?? -1) === activeIdx)
     }
   }
 
@@ -464,12 +509,10 @@ export function applyTimelineRail(ctx: ClientContext): void {
     for (const el of items) {
       el.classList.remove('dsh-timeline-hover-self', 'dsh-timeline-hover-1', 'dsh-timeline-hover-2')
     }
-    // 重新计算 active（基于缓存数据）
-    if (scrollEl !== null && lastRows.length > 0) {
-      const activeIdx = activeIndex(lastRows, scrollEl.scrollTop, scrollEl.scrollTop + (scrollEl.clientHeight || 1))
-      for (const el of items) {
-        el.dataset.active = String(Number(el.dataset.idx ?? -1) === activeIdx)
-      }
+    // 恢复当前会话高亮（基于缓存数据；强制重算）
+    if (scrollEl !== null && ticksCache.length > 0) {
+      lastActiveIdx = -1
+      updateActive(track, scrollEl)
     }
   }
 
@@ -505,32 +548,42 @@ export function applyTimelineRail(ctx: ClientContext): void {
     tipEl = null
   }
 
-  /** 合并滚动 + resize 的节流重绘。 */
+  /** 滚动 + resize 热路径。
+   *  DSH 是虚拟滚动：scroll 事件触发时行可能尚未重挂，即时 updateActive 用旧行算不准；
+   *  因此先即时更新（流畅反馈），再延迟 150ms 重算一次（等虚拟滚动重挂行，修正精确值）。
+   *  不用 rAF（后台/headless 不执行会丢事件）。 */
+  let settleTimer = 0
   const schedule = (): void => {
-    if (raf !== 0) return
-    raf = requestAnimationFrame(() => {
+    if (raf !== 0) {
+      cancelAnimationFrame(raf)
       raf = 0
-      render()
-    })
+    }
+    renderLight()
+    if (settleTimer !== 0) clearTimeout(settleTimer)
+    settleTimer = window.setTimeout(() => {
+      settleTimer = 0
+      renderLight()
+    }, 150)
   }
 
   ctx.effect(() => {
-    render()
-    if (scrollEl !== null) {
-      scrollEl.addEventListener('scroll', schedule, { passive: true })
-      window.addEventListener('resize', schedule)
-    }
+    renderFull()
+    // 滚动监听绑 document（capture）而非死绑 scrollEl：
+    // DSH 虚拟滚动会替换/重建 .wSkVaW_scrollBody，死绑旧元素会收不到
+    // 新元素的滚动 → active 卡旧值。capture 捕获任何元素的滚动。
+    document.addEventListener('scroll', schedule, { capture: true, passive: true })
+    window.addEventListener('resize', schedule)
     // 消息新增 / 切换会话 / DOM 变化：防抖 250ms 合并高频变更（工具调用、流式输出），
     // 避免每帧都全量 render。rail 失联时立即重建。
     const observer = new MutationObserver(() => {
       if (railEl === null || !railEl.isConnected) {
-        render()
+        renderFull()
         return
       }
       if (obsTimer !== 0) return
       obsTimer = window.setTimeout(() => {
         obsTimer = 0
-        render()
+        renderFull()
       }, OBS_DEBOUNCE_MS)
     })
     observer.observe(document.documentElement, { childList: true, subtree: true })
@@ -540,8 +593,12 @@ export function applyTimelineRail(ctx: ClientContext): void {
         clearTimeout(obsTimer)
         obsTimer = 0
       }
+      if (settleTimer !== 0) {
+        clearTimeout(settleTimer)
+        settleTimer = 0
+      }
       hideTip()
-      scrollEl?.removeEventListener('scroll', schedule)
+      document.removeEventListener('scroll', schedule, true)
       window.removeEventListener('resize', schedule)
       observer.disconnect()
       textCache.clear()
@@ -552,6 +609,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
       ticksCache = []
       lastRows = []
       lastSig = ''
+      lastActiveIdx = -1
       hoverIdx = -1
       loadingHistory = false
       autoLoadCount = 0

@@ -157,16 +157,26 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
   }
   document.addEventListener('click', onCaptureClick, true)
 
-  /** 往一个已打开的三点菜单注入「打开文件夹」项（放在第二项）。 */
+  /** 只处理「工作区行」的三点菜单；其他菜单（会话行、视图选项等）一律不碰。 */
+  const isWorkspaceMenu = (menu: HTMLElement): boolean => {
+    const texts = Array.from(menu.querySelectorAll('[role="menuitem"]'))
+      .map((it) => it.textContent ?? '')
+    return texts.some((t) => t.includes('删除工作区'))
+  }
+
+  /** 往一个工作区三点菜单注入「打开文件夹」项（放在第二项，即「删除工作区」之前）。 */
   const injectMenu = (menu: HTMLElement): void => {
     if (menu.hasAttribute(MENU_INJECTED_MARK)) return
+    // 守卫：不是工作区行的菜单（没有「删除工作区」项）绝不注入。
+    if (!isWorkspaceMenu(menu)) return
     menu.setAttribute(MENU_INJECTED_MARK, '1')
-    const items = menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
-    const first = items[0]
-    if (first === undefined) return
-    const wrap = first.parentElement
+    const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+    const deleteBtn = items.find((it) => (it.textContent ?? '').includes('删除工作区'))
+    const renameBtn = items.find((it) => it !== deleteBtn)
+    if (deleteBtn === undefined || renameBtn === undefined) return
+    const wrap = renameBtn.parentElement
     if (wrap === null) return
-    // 克隆第一个菜单项的外壳（itemWrap + item button），复用官方样式。
+    // 克隆「重命名」项的外壳（itemWrap + item button），复用官方样式。
     const clone = wrap.cloneNode(true) as HTMLElement
     const btn = clone.querySelector<HTMLButtonElement>('button')
     if (btn === null) return
@@ -177,13 +187,13 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
     btn.classList.remove('selected')
     // 重填内容：文件夹图标 + 「打开文件夹」。
     btn.textContent = ''
-    const firstIcon = first.querySelector('span')
-    const firstLabel = first.querySelectorAll('span')[1]
+    const renameIcon = renameBtn.querySelector('span')
+    const renameLabel = renameBtn.querySelectorAll('span')[1]
     const iconSpan = document.createElement('span')
-    iconSpan.className = firstIcon?.className ?? ''
+    iconSpan.className = renameIcon?.className ?? ''
     iconSpan.innerHTML = FOLDER_ICON_SVG
     const labelSpan = document.createElement('span')
-    labelSpan.className = firstLabel?.className ?? ''
+    labelSpan.className = renameLabel?.className ?? ''
     labelSpan.textContent = '打开文件夹'
     btn.append(iconSpan, labelSpan)
     btn.addEventListener('click', (event: MouseEvent) => {
@@ -193,7 +203,11 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
       // 模拟菜单外点击，让 Menu 组件自己执行 onClose 关闭菜单。
       document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
     })
-    wrap.after(clone)
+    // 插到「删除工作区」之前 → 重命名 / 打开文件夹 / 删除工作区。
+    const deleteWrap = deleteBtn.parentElement
+    if (deleteWrap !== null) deleteWrap.parentElement?.insertBefore(clone, deleteWrap)
+    // 兜底：万一没插上，就放末尾。
+    if (clone.parentElement === null) wrap.after(clone)
   }
 
   const injectAllMenus = (): void => {

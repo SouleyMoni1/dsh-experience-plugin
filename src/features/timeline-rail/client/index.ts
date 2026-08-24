@@ -118,16 +118,20 @@ function injectCss(): void {
   document.head.appendChild(tag)
 }
 
-/** 从一条用户消息行提取提问文本。 */
+/** 从一条消息块提取文本：助手 markdown 优先，其次用户气泡。 */
 function extractQuestion(row: HTMLElement): string {
+  const md = row.querySelector<HTMLElement>('._markdown_1nba0_5, [class*="markdown"]')
+  if (md !== null) return (md.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 200)
   const bubble = row.querySelector('.gdEzaW_bubble, [class*="bubble"]')
   const textEl = bubble?.querySelector('._text_1pfhk_1, [class*="_text_"]')
   const raw = textEl?.textContent ?? bubble?.textContent ?? row.textContent ?? ''
   return raw.replace(/\s+/g, ' ').trim().slice(0, 200)
 }
 
-/** 从一条用户消息行之后取回复片段（紧跟的助手消息文本）。 */
+/** 从一条用户消息行之后取回复片段（紧跟的助手消息文本）。助手消息块自身返回空。 */
 function extractReply(row: HTMLElement): string {
+  // 助手回复块本身就是“回复”，无需再找后续
+  if (row.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null) return ''
   // 向上找该用户行所在的 flowItem（每条消息一个）
   let flowItem: HTMLElement | null = row.parentElement
   for (let i = 0; i < 6 && flowItem; i++) {
@@ -203,37 +207,42 @@ export function applyTimelineRail(ctx: ClientContext): void {
     return { rail: el, scroll }
   }
 
-  /** 通用识别所有用户消息行：优先 .gdEzaW_userRow（最精确），否则用 flowItem 结构判定兜底。 */
-  const collectUserRows = (scroll: HTMLElement): HTMLElement[] => {
-    const direct = Array.from(scroll.querySelectorAll<HTMLElement>('.gdEzaW_userRow'))
-    if (direct.length > 0) return direct
-    // 兜底：flowItem 里含用户气泡且不含 markdown 的即用户消息
+  /** 通用识别所有「消息块」：用户气泡 + 助手回复块（Sxvs8a_root/markdown），排除工具调用行与系统提示。 */
+  const collectMessageBlocks = (scroll: HTMLElement): HTMLElement[] => {
     return Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
-      const hasBubble = f.querySelector('.gdEzaW_bubble, [class*="bubble"]') !== null
+      // 工具调用行（Read/Edit/Pwsh…）不算消息
+      if (f.querySelector('[class*="ztWv_q_callRow"]') !== null) return false
+      const text = (f.textContent ?? '').replace(/\s+/g, ' ').trim()
+      // 系统提示（上下文压缩/注入/运行中状态/时间戳）不算消息
+      if (/上下文已压缩|上下文注入|运行中|^\d{1,2}:\d{2}\s*·/.test(text)) return false
+      // 助手回复块（Sxvs8a_root 含 markdown）与用户气泡都算
+      const hasReply = f.querySelector('[class*="Sxvs8a_root"], [class*="Sxvs8a_body"]') !== null
       const hasMarkdown = f.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null
-      return hasBubble && !hasMarkdown
+      const hasBubble = f.querySelector('.gdEzaW_bubble, [class*="bubble"]') !== null
+      return hasReply || hasMarkdown || hasBubble
     })
   }
 
-  /** 收集所有用户消息行信息（按顺序，聚合排列）。 */
+  /** 收集所有消息块信息（按顺序，聚合排列；消息多时自动缩间距防溢出）。 */
   const collectTicks = (scroll: HTMLElement, trackH: number): Array<{ row: HTMLElement; top: number; question: string; reply: string }> => {
-    const rows = collectUserRows(scroll)
+    const rows = collectMessageBlocks(scroll)
     const n = rows.length
     if (n === 0) return []
     // 聚合：固定间距排成一组，整组上下居中
-    const totalH = (n - 1) * TICK_GAP
+    const gap = Math.min(TICK_GAP, n > 1 ? Math.floor((trackH - 20) / (n - 1)) : TICK_GAP)
+    const totalH = (n - 1) * gap
     const startTop = Math.max(0, (trackH - totalH) / 2)
     return rows.map((row, i) => ({
       row,
-      top: startTop + i * TICK_GAP,
+      top: startTop + i * gap,
       question: extractQuestion(row),
       reply: extractReply(row)
     }))
   }
 
-  /** 计算当前会话停留的横线索引（视口内最靠下的可见用户消息）。 */
+  /** 计算当前会话停留的横线索引（视口内最靠下的可见消息块）。 */
   const activeIndex = (scroll: HTMLElement): number => {
-    const rows = collectUserRows(scroll)
+    const rows = collectMessageBlocks(scroll)
     const st = scroll.scrollTop
     const viewBottom = st + (scroll.clientHeight || 1)
     let idx = -1

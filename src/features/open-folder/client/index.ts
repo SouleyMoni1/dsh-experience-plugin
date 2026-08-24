@@ -1,61 +1,46 @@
 /**
- * open-folder —— browser 半区：侧边栏「Workspace/项目」行「在文件夹中显示」按钮。
+ * open-folder —— browser 半区：侧边栏「工作区」行三点（⋯）菜单注入「打开文件夹」项。
  *
- * 现状勘察结论：
- *  - 官方 dsh-client-ui-workspace 的 ProjectRowItem 菜单是硬编码的
- *    （workspaceMenuItems = rename / delete），`onSelect` 里
- *    `if (id !== "rename" && id !== "delete") return`，且没有行级 slot
- *    扩展点 —— 无法通过 slots 注入菜单项。
- *  - 官方 host 能力 ctx.workspaces.openPath(path) 已会用系统默认应用打开
- *    目录（Windows: Invoke-Item / macOS: open / Linux: xdg-open），
- *    因此本功能无需新增 host 插件，直接复用。
+ * 与原版交互一致：项目行的全部操作集中在三点菜单（重命名 → 打开文件夹 →
+ * 删除工作区），不往行上塞独立按钮。点击「打开文件夹」后调用 host 的
+ * POST /api/open-folder，在系统文件管理器中打开对应目录。
  *
- * 实现：MutationObserver 观察侧边栏项目行（role="treeitem" 且带
- * aria-expanded 的组头），为每个真实 workspace 追加一个文件夹图标按钮，
- * 点击后调用 openPath 在系统文件管理器中打开该目录。
- * 这是提示词「做法 B（兜底，更通用）」：独立的悬停按钮，不侵入官方菜单。
+ * 官方 dsh-client-ui-workspace 的 ProjectRowItem 菜单是硬编码的（只有
+ * rename / delete），没有行级 slot 扩展点；因此用 DOM 观察 + 菜单项注入
+ * 实现，不侵入官方源码。
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { IWorkspaces, WorkspaceView } from '@deepseek-ai/dsh-client-runtime/client'
 
-/** 已注入标记（防止重复扫描时重复注入）。 */
-const INJECTED_MARK = 'data-dsh-open-folder-injected'
-const BUTTON_CLASS = 'dsh-open-folder-btn'
-const STYLE_TAG = 'dsh-experience/open-folder.css'
+/** 已注入标记（防止同一个菜单被重复注入）。 */
+const MENU_INJECTED_MARK = 'data-dsh-open-folder-menu-injected'
+
+/** 打开失败提示样式 tag。 */
 const TOAST_CLASS = 'dsh-open-folder-toast'
 const TOAST_TAG = 'dsh-experience/open-folder-toast.css'
 
 /** folder_open_16 图标（与官方 IconFolderOpen16 同构，纯 DOM 注入用）。 */
 const FOLDER_ICON_SVG = [
   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">',
-  '<path d="M5.19629 1.57104C5.81144 1.5711 6.38623 1.8786 6.72754 2.39038L7.19922 3.09839C7.28454 3.22635 7.42824 3.30347 7.58203 3.30347H12.1699C13.5039 3.30348 14.5859 4.38548 14.5859 5.71948V6.62671C15.2694 7.02689 15.6605 7.85012 15.4385 8.68726L14.3848 12.658C14.1037 13.7164 13.1449 14.4527 12.0498 14.4529H2.91699C1.51651 14.4529 0.45166 13.2814 0.501954 11.9519V3.98706C0.501954 2.65305 1.58396 1.57104 2.91797 1.57104H5.19629ZM3.7793 7.75562C3.30994 7.75562 2.89883 8.07153 2.77832 8.52515L1.91602 11.7722C1.74167 12.4291 2.23734 13.073 2.91699 13.073H12.0498C12.5191 13.0728 12.9304 12.757 13.0508 12.3035L14.1045 8.33374C14.1819 8.04202 13.9619 7.756 13.6602 7.75562H3.7793M2.91797 2.9519C2.34625 2.9519 1.88281 3.41534 1.88281 3.98706V7.0337C2.33068 6.7269 3.02249 6.37476 3.7793 6.37476H13.2051V5.71948C13.2051 5.14777 12.7416 4.68434 12.1699 4.68433H7.58203C6.96675 4.6843 6.39209 4.37595 6.05078 3.86401L5.5791 3.15601C5.49379 3.02821 5.34995 2.95196 5.19629 2.9519H2.91797Z" fill="currentColor"/>',
-  '<path opacity="0.2" d="M13.6602 7.75525C13.9618 7.7556 14.1815 8.04179 14.1045 8.33337L13.0508 12.3031C12.9304 12.7567 12.5191 13.0725 12.0498 13.0726H2.91701C2.23744 13.0725 1.7417 12.4287 1.91603 11.7719L2.77834 8.52478C2.89898 8.07146 3.31018 7.75532 3.77931 7.75525H13.6602M5.1963 2.95154C5.34985 2.95159 5.49377 3.02803 5.57912 3.15564L6.0508 3.86365C6.39205 4.37553 6.96685 4.68385 7.58205 4.68396H12.1699C12.7416 4.68396 13.2049 5.14754 13.2051 5.71912V6.37439H3.77931C3.02267 6.37444 2.33067 6.72671 1.88283 7.29333V3.98669C1.88299 3.4152 2.34649 2.95168 2.91798 2.95154H5.1963Z" fill="currentColor"/>',
+  '<path d="M5.19629 1.57104C5.81144 1.5711 6.38623 1.8786 6.72754 2.39038L7.19922 3.09839C7.28454 3.22635 7.42824 3.30347 7.58203 3.30347H12.1699C13.5039 3.30348 14.5859 4.38548 14.5859 5.71948V6.62671C15.2694 7.02689 15.6605 7.85012 15.4385 8.68726L14.3848 12.658C14.1037 13.7164 13.1449 14.4527 12.0498 14.4529H2.91699C1.51651 14.4529 0.45166 13.2814 0.501954 11.9519V3.98706C0.501954 2.65305 1.58396 1.57104 2.91797 1.57104H5.19629ZM3.7793 7.75562C3.30994 7.75562 2.89883 8.07153 2.77832 8.52515L1.91602 11.7722C1.74167 12.4291 2.23734 13.073 2.91699 13.073H12.0498C12.5191 13.0728 12.9304 12.757 13.0508 12.3035L14.1045 8.33374C14.1819 8.04202 13.9619 7.756 13.6602 7.75562H3.7793M2.91797 2.9519C2.34625 2.9519 1.88281 3.41534 1.88281 3.98706V7.2937C2.33068 6.7269 3.02249 6.37476 3.7793 6.37476H13.2051V5.71948C13.2051 5.14777 12.7416 4.68434 12.1699 4.68433H7.58203C6.96675 4.6843 6.39209 4.37595 6.05078 3.86401L5.5791 3.15601C5.49379 3.02821 5.34995 2.95196 5.19629 2.9519H2.17797Z" fill="currentColor"/>',
+  '<path opacity="0.2" d="M13.6602 7.75525C13.9618 7.7556 14.1815 8.04179 14.1045 8.33337L13.0508 12.3031C12.9304 12.7567 12.5191 13.0725 12.0498 13.0726H2.91701C2.23744 13.0725 1.7417 12.4287 1.91603 11.7719L2.77834 8.52478C2.89898 8.07146 3.31018 7.75532 3.77931 7.75525H13.6602M5.1963 2.95154C5.34985 2.95159 5.49377 3.02803 5.57912 3.15564L6.0508 3.86365C6.39205 4.37553 6.96685 4.68385 7.58205 4.68396H12.1699C12.7416 4.68396 13.2049 5.14754 13.2051 5.71912V6.37439H3.77931C3.02267 6.37444 2.33067 6.72671 1.88283 7.29333V4.98669C1.88299 4.4152 2.34649 4.95168 2.91798 4.95154H5.1962Z" fill="currentColor"/>',
   '</svg>'
 ].join('')
 
-/** 注入一次按钮样式（与官方 iconButton 同款观感）。 */
-function injectCss(): void {
+/** basename（同时兼容 / 与 \\ 分隔符）。 */
+function basename(path: string): string {
+  const base = path.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
+  return base === undefined || base === '' ? path : base
+}
+
+/** 注入一次错误 toast 样式。 */
+function injectToastCss(): void {
   if (typeof document === 'undefined') return
-  if (document.querySelector(`style[data-dsh-open-folder=${JSON.stringify(STYLE_TAG)}]`) !== null) return
+  if (document.querySelector(`style[data-dsh-open-folder=${JSON.stringify(TOAST_TAG)}]`) !== null) return
   const tag = document.createElement('style')
   tag.dataset.plugin = 'dsh-experience-plugin'
-  tag.dataset.pluginCss = STYLE_TAG
+  tag.dataset.pluginCss = TOAST_TAG
   tag.textContent = [
-    `.${BUTTON_CLASS}{`,
-    'border:none;background:transparent;color:var(--dsw-alias-label-secondary,currentColor);',
-    'cursor:pointer;border-radius:6px;padding:4px;display:inline-flex;align-items:center;',
-    'justify-content:center;line-height:0;flex:none;margin:0;',
-    '}',
-    `.${BUTTON_CLASS}:hover{color:var(--dsw-alias-label-primary,currentColor);background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}`,
-    `.${BUTTON_CLASS}:disabled{opacity:.45;cursor:default}`
-  ].join('')
-  document.head.appendChild(tag)
-
-  if (document.querySelector(`style[data-dsh-open-folder=${JSON.stringify(TOAST_TAG)}]`) !== null) return
-  const toastTag = document.createElement('style')
-  toastTag.dataset.plugin = 'dsh-experience-plugin'
-  toastTag.dataset.pluginCss = TOAST_TAG
-  toastTag.textContent = [
     `.${TOAST_CLASS}{`,
     'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;',
     'max-width:min(480px,calc(100vw - 48px));box-sizing:border-box;',
@@ -69,7 +54,7 @@ function injectCss(): void {
     `.${TOAST_CLASS} button{border:none;background:transparent;color:inherit;cursor:pointer;padding:2px 4px;border-radius:4px;font-size:12px;flex:none}`,
     `.${TOAST_CLASS} button:hover{background:rgba(216,97,97,.2)}`
   ].join('')
-  document.head.appendChild(toastTag)
+  document.head.appendChild(tag)
 }
 
 /** 打开失败时给用户一个短暂可见的错误提示（不依赖 host toast 服务）。 */
@@ -96,20 +81,14 @@ function showErrorToast(message: string): void {
   }, 6000)
 }
 
-/** basename（同时兼容 / 与 \\ 分隔符）。 */
-function basename(path: string): string {
-  const base = path.replace(/[/\\]+$/, '').split(/[/\\]/).pop()
-  return base === undefined || base === '' ? path : base
-}
-
 /**
- * 在浏览器侧启动「打开文件夹」注入。
+ * 在浏览器侧启动「三点菜单 → 打开文件夹」注入。
  * @param ctx - client 根上下文。
- * @param workspaces - 官方 workspaces 服务（openPath + list 快照）。
+ * @param workspaces - 官方 workspaces 服务（提供 workspace 路径快照）。
  */
 export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | undefined): void {
   if (typeof document === 'undefined' || workspaces === undefined) return
-  injectCss()
+  injectToastCss()
 
   const open = (path: string): void => {
     void fetch('/api/open-folder', {
@@ -130,8 +109,11 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
       })
   }
 
-  /** 给一行注入按钮；已注入或非真实 workspace 行跳过。 */
-  const scan = (): void => {
+  /** 最近一次被点击的三点菜单对应 workspace 路径。 */
+  let pendingPath: string | undefined
+
+  /** 行文本 → workspace path（唯一匹配才返回，避免开错目录）。 */
+  const resolvePath = (label: string): string | undefined => {
     const snapshot = workspaces.list.getSnapshot()
     const byTitle = new Map<string, WorkspaceView[]>()
     const byBase = new Map<string, WorkspaceView[]>()
@@ -145,54 +127,89 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
       const base = basename(ws.path)
       if (base !== '') push(byBase, base, ws)
     }
-    const rows = document.querySelectorAll<HTMLElement>('[role="treeitem"][aria-expanded]')
-    for (const row of rows) {
-      if (row.hasAttribute(INJECTED_MARK)) continue
-      const label = (row.innerText ?? '').trim()
-      if (label === '') continue
-      // 只做唯一匹配：同名（或同 basename）的多个 workspace 行无法区分，
-      // 盲目按标签打开可能开错目录 —— 这种行直接跳过注入。
-      const byTitleHit = byTitle.get(label)
-      let ws: WorkspaceView | undefined
-      if (byTitleHit !== undefined && byTitleHit.length === 1) ws = byTitleHit[0]
-      else {
-        const byBaseHit = byBase.get(label)
-        if (byBaseHit !== undefined && byBaseHit.length === 1) ws = byBaseHit[0]
-      }
-      if (ws === undefined) continue
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.className = BUTTON_CLASS
-      btn.title = `在文件夹中显示 ${ws.path}`
-      btn.setAttribute('aria-label', `在文件夹中显示 ${ws.path}`)
-      btn.innerHTML = FOLDER_ICON_SVG
-      btn.addEventListener('click', (event: MouseEvent) => {
-        event.stopPropagation()
-        event.preventDefault()
-        open(ws.path)
-      })
-      row.appendChild(btn)
-      row.setAttribute(INJECTED_MARK, '1')
-    }
+    const byTitleHit = byTitle.get(label)
+    if (byTitleHit !== undefined && byTitleHit.length === 1) return byTitleHit[0].path
+    const byBaseHit = byBase.get(label)
+    if (byBaseHit !== undefined && byBaseHit.length === 1) return byBaseHit[0].path
+    return undefined
   }
 
-  let raf = 0
-  const schedule = (): void => {
-    if (raf !== 0) return
-    raf = requestAnimationFrame(() => {
-      raf = 0
-      scan()
+  /** 从行 DOM 提取纯标题（过滤掉按钮的 aria-label 文本）。 */
+  const extractLabel = (row: HTMLElement): string => {
+    let text = row.innerText ?? ''
+    // 三点/新建/复制等按钮的 aria-label 会混进 innerText，逐条剔除。
+    for (const btn of row.querySelectorAll<HTMLElement>('button')) {
+      const aria = btn.getAttribute('aria-label')
+      if (aria !== null && aria !== '') text = text.split(aria).join('')
+    }
+    return text.replace(/\s+/g, '').trim()
+  }
+
+  /** capture 阶段记录被点击的三点按钮所在 workspace 行。 */
+  const onCaptureClick = (event: MouseEvent): void => {
+    const target = event.target as HTMLElement
+    if (target.closest('[role="menu"]') !== null) return // 菜单内的点击不更新
+    const row = target.closest<HTMLElement>('[role="treeitem"][aria-expanded]')
+    if (row === null) return
+    const label = extractLabel(row)
+    if (label === '') return
+    pendingPath = resolvePath(label)
+  }
+  document.addEventListener('click', onCaptureClick, true)
+
+  /** 往一个已打开的三点菜单注入「打开文件夹」项（放在第二项）。 */
+  const injectMenu = (menu: HTMLElement): void => {
+    if (menu.hasAttribute(MENU_INJECTED_MARK)) return
+    menu.setAttribute(MENU_INJECTED_MARK, '1')
+    const items = menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')
+    const first = items[0]
+    if (first === undefined) return
+    const wrap = first.parentElement
+    if (wrap === null) return
+    // 克隆第一个菜单项的外壳（itemWrap + item button），复用官方样式。
+    const clone = wrap.cloneNode(true) as HTMLElement
+    const btn = clone.querySelector<HTMLButtonElement>('button')
+    if (btn === null) return
+    // 清理克隆残留的选中/子菜单属性。
+    btn.removeAttribute('aria-haspopup')
+    btn.removeAttribute('aria-expanded')
+    btn.removeAttribute('aria-selected')
+    btn.classList.remove('selected')
+    // 重填内容：文件夹图标 + 「打开文件夹」。
+    btn.textContent = ''
+    const firstIcon = first.querySelector('span')
+    const firstLabel = first.querySelectorAll('span')[1]
+    const iconSpan = document.createElement('span')
+    iconSpan.className = firstIcon?.className ?? ''
+    iconSpan.innerHTML = FOLDER_ICON_SVG
+    const labelSpan = document.createElement('span')
+    labelSpan.className = firstLabel?.className ?? ''
+    labelSpan.textContent = '打开文件夹'
+    btn.append(iconSpan, labelSpan)
+    btn.addEventListener('click', (event: MouseEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+      if (pendingPath !== undefined) open(pendingPath)
+      // 模拟菜单外点击，让 Menu 组件自己执行 onClose 关闭菜单。
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
     })
+    wrap.after(clone)
+  }
+
+  const injectAllMenus = (): void => {
+    document.querySelectorAll<HTMLElement>('[role="menu"]').forEach(injectMenu)
   }
 
   ctx.effect(() => {
-    scan()
-    const observer = new MutationObserver(schedule)
+    injectAllMenus()
+    const observer = new MutationObserver(() => {
+      // 菜单打开时 portal 新增 [role="menu"]，rAF 后注入（等 React 渲染完）。
+      requestAnimationFrame(injectAllMenus)
+    })
     observer.observe(document.documentElement, { childList: true, subtree: true })
     return () => {
       observer.disconnect()
-      if (raf !== 0) cancelAnimationFrame(raf)
-      raf = 0
+      document.removeEventListener('click', onCaptureClick, true)
     }
-  }, 'open-folder: DOM observer')
+  }, 'open-folder: menu injection')
 }

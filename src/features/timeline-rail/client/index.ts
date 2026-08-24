@@ -195,6 +195,10 @@ export function applyTimelineRail(ctx: ClientContext): void {
   let raf = 0
   /** 当前 hover 的横线索引（-1 = 未 hover）。hover 期间不显示 active 高亮。 */
   let hoverIdx = -1
+  /** 预览卡片延迟显示计时器：快速划过横线时不弹卡片，停住才显示。 */
+  let tipTimer = 0
+  /** 预览卡片延迟显示时长 ms。 */
+  const TIP_DELAY_MS = 250
   /** 是否正在自动补载历史（防止并发点击）。 */
   let loadingHistory = false
   /** 当前会话已自动补载的次数（防止死循环，会话切换时重置）。 */
@@ -478,7 +482,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
     }
   }
 
-  /** hover 进入：级联加长（3 / 2 / 1.5 倍），弹出预览卡片，隐藏 active 高亮。 */
+  /** hover 进入：级联加长（3 / 2 / 1.5 倍），延迟弹出预览卡片，隐藏 active 高亮。 */
   const onHover = (anchor: HTMLButtonElement, idx: number): void => {
     hoverIdx = idx
     const track = railEl?.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
@@ -494,15 +498,30 @@ export function applyTimelineRail(ctx: ClientContext): void {
       else if (ei === idx - 1 || ei === idx + 1) el.classList.add('dsh-timeline-hover-1')
       else if (ei === idx - 2 || ei === idx + 2) el.classList.add('dsh-timeline-hover-2')
     }
-    // 弹出预览卡片
-    const tick = ticksCache[idx]
-    if (tick !== undefined) showTip(tick, anchor)
+    // 预览卡片延迟显示：快速划过横线（<250ms 就移走）不弹卡片，停住才显示。
+    // 延迟期间若 hover 到别的横线，旧计时器被取消，只保留最新的。
+    if (tipTimer !== 0) clearTimeout(tipTimer)
+    tipTimer = window.setTimeout(() => {
+      tipTimer = 0
+      // 只有仍 hover 在同一横线才弹（防延迟期间已移走/切到别的横线）
+      if (hoverIdx !== idx) return
+      const tick = ticksCache[idx]
+      if (tick !== undefined) showTip(tick, anchor)
+    }, TIP_DELAY_MS)
   }
 
-  /** hover 离开：移除级联 class，隐藏预览卡片，恢复当前会话高亮。 */
+  /** hover 离开：取消延迟计时器，立即移除预览卡片，恢复当前会话高亮。 */
   const onLeave = (): void => {
     hoverIdx = -1
-    hideTip()
+    // 取消延迟显示计时器：延迟内移走 → 不弹卡片
+    if (tipTimer !== 0) {
+      clearTimeout(tipTimer)
+      tipTimer = 0
+    }
+    // 立即移除卡片（不淡出）：快速移动时旧卡片若淡出会与下一张重叠
+    const tip = tipEl
+    tipEl = null
+    if (tip !== null) tip.remove()
     const track = railEl?.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
     if (!track) return
     const items = Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))
@@ -518,7 +537,10 @@ export function applyTimelineRail(ctx: ClientContext): void {
 
   /** 显示预览卡片（白色圆角，消息 + 回复）。淡入 + 轻微上浮动画。 */
   const showTip = (tick: { question: string; reply: string }, anchor: HTMLElement): void => {
-    hideTip()
+    // 立即移除旧卡片（不淡出）：快速 hover 到另一条横线时，旧卡片淡出中会与新卡片重叠
+    const old = tipEl
+    tipEl = null
+    if (old !== null) old.remove()
     const tip = document.createElement('div')
     tip.className = TIP_CLASS
     const q = document.createElement('div')
@@ -618,7 +640,14 @@ export function applyTimelineRail(ctx: ClientContext): void {
         clearTimeout(settleTimer)
         settleTimer = 0
       }
-      hideTip()
+      // 取消延迟显示计时器 + 立即移除卡片
+      if (tipTimer !== 0) {
+        clearTimeout(tipTimer)
+        tipTimer = 0
+      }
+      const tip = tipEl
+      tipEl = null
+      if (tip !== null) tip.remove()
       document.removeEventListener('scroll', schedule, true)
       window.removeEventListener('resize', schedule)
       observer.disconnect()

@@ -30,8 +30,6 @@ const CSS_TAG = 'dsh-experience/timeline-rail.css'
 const RAIL_W = 24
 /** 正常短横线长度（2 倍）。 */
 const TICK_LEN = 12
-/** 横线在轨道内的左偏移（右移 5px）。 */
-const TICK_LEFT = 8
 /** 横线之间的固定间距（+2px）。 */
 const TICK_GAP = 12
 /** 点击滚动时的顶部留白（px）。 */
@@ -53,34 +51,41 @@ function injectCss(): void {
     '}',
     /* 轨道本体 */
     `.${TRACK_CLASS}{position:relative;width:100%;height:100%;}`,
-    /* 单条短横线 */
+    /* 单条短横线：按钮本体是加大一倍的热区（横向 24px），视觉横线用 ::before 画 */
     `.${ITEM_CLASS}{`,
     'position:absolute;',
-    `left:${TICK_LEFT}px;`,
+    'left:0;',
+    `width:${RAIL_W}px;height:${TICK_GAP}px;`,
+    'background:transparent;',
+    'cursor:pointer;pointer-events:auto;padding:0;border:none;',
+    '}',
+    /* 视觉横线（居中，默认 12px） */
+    `.${ITEM_CLASS}::before{`,
+    'content:"";position:absolute;left:50%;top:50%;',
     `width:${TICK_LEN}px;height:2px;`,
+    'transform:translate(-50%,-50%);',
     'border-radius:1.5px;',
     'background:var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.35));',
-    'cursor:pointer;pointer-events:auto;padding:0;border:none;',
-    'transition:width .12s ease,height .12s ease,background .12s ease,box-shadow .12s ease,left .12s ease;',
+    'transition:width .12s ease,height .12s ease,background .12s ease,box-shadow .12s ease;',
     '}',
     /* 当前会话停留的高亮（非 hover 时加深） */
-    `.${ITEM_CLASS}[data-active="true"]{`,
+    `.${ITEM_CLASS}[data-active="true"]::before{`,
     'background:var(--dsw-alias-state-info-primary,rgba(78,161,255,.75));',
     '}',
     /* hover：选中横线 —— 2 倍加长 + 加深加粗 */
-    `.${ITEM_CLASS}.dsh-timeline-hover-self{`,
+    `.${ITEM_CLASS}.dsh-timeline-hover-self::before{`,
     `width:${TICK_LEN * 2}px;`,
     'height:3px;',
     'background:var(--dsw-alias-state-info-primary,#4ea1ff);',
     'box-shadow:0 0 5px rgba(78,161,255,.65);',
     '}',
-    /* hover：上下相邻 —— 1.75 倍，样式不变 */
-    `.${ITEM_CLASS}.dsh-timeline-hover-1{`,
-    `width:${Math.round(TICK_LEN * 1.75)}px;`,
+    /* hover：上下相邻 —— 1.5 倍，样式不变 */
+    `.${ITEM_CLASS}.dsh-timeline-hover-1::before{`,
+    `width:${Math.round(TICK_LEN * 1.5)}px;`,
     '}',
-    /* hover：上下第二个 —— 1.4 倍，样式不变 */
-    `.${ITEM_CLASS}.dsh-timeline-hover-2{`,
-    `width:${Math.round(TICK_LEN * 1.4)}px;`,
+    /* hover：上下第二个 —— 1.25 倍，样式不变 */
+    `.${ITEM_CLASS}.dsh-timeline-hover-2::before{`,
+    `width:${Math.round(TICK_LEN * 1.25)}px;`,
     '}',
     /* 预览卡片（白色圆角，复刻 codex 样式） */
     `.${TIP_CLASS}{`,
@@ -285,8 +290,9 @@ export function applyTimelineRail(ctx: ClientContext): void {
     if (tick !== undefined) showTip(tick, anchor)
   }
 
-  /** hover 离开：移除级联 class，恢复当前会话高亮。 */
+  /** hover 离开：移除级联 class，隐藏预览卡片，恢复当前会话高亮。 */
   const onLeave = (): void => {
+    hideTip()
     const track = railEl?.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
     if (!track) return
     const items = Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))

@@ -29,8 +29,12 @@ const COLLAPSED_CLASS = 'dsh-msg-collapse-collapsed'
 const WORK_CLASS = 'dsh-msg-collapse-work'
 /** 淡出动画中的标记 class（opacity 0）。 */
 const FADING_CLASS = 'dsh-msg-collapse-fading'
+/** 最终回复块滑动过渡的临时 class。 */
+const SLIDE_CLASS = 'dsh-msg-collapse-slide'
 /** 淡入淡出动画时长 ms。 */
 const FADE_MS = 160
+/** 最终回复块上下滑动时长 ms。 */
+const SLIDE_MS = 180
 /** 样式标签 key。 */
 const CSS_TAG = 'dsh-experience/msg-collapse.css'
 
@@ -71,6 +75,8 @@ function injectCss(): void {
     /* 折叠/展开过渡：工作节点淡入淡出 */
     `.${WORK_CLASS}{transition:opacity ${FADE_MS}ms ease;}`,
     `.${WORK_CLASS}.${FADING_CLASS}{opacity:0;}`,
+    /* 最终回复块上下滑动过渡（transform 位移补偿法） */
+    `.${SLIDE_CLASS}{transition:transform ${SLIDE_MS}ms ease;will-change:transform;}`,
   ].join('\n')
   document.head.appendChild(tag)
 }
@@ -247,8 +253,14 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
       for (const w of toHide) {
         state.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
       }
+      // 最终回复的 Think 标题元素（折叠时淡出）
+      const fr = state.finalReply
+      const frTitle = fr !== null ? fr.querySelector<HTMLElement>('[class*="QWLzlG_root"]') : null
+      /** 执行真正的折叠（移走内容 + 隐藏标题 + 回复块平滑上移）。 */
       const doMove = (): void => {
         state.animating = false
+        // 移走内容前先测回复块位置（此时标题仍在，内容仍在）
+        const beforeTop = fr !== null ? fr.getBoundingClientRect().top : 0
         for (const w of toHide) {
           w.classList.remove(FADING_CLASS)
           getVault().appendChild(w)
@@ -256,14 +268,39 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
         bar.classList.add(COLLAPSED_CLASS)
         label.textContent = `${base} · 展开`
         // 隐藏最终回复 Think 标题
-        if (state.finalReply !== null) {
-          const qw = state.finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
-          if (qw !== null) qw.style.display = 'none'
+        if (frTitle !== null) {
+          frTitle.classList.remove(FADING_CLASS)
+          frTitle.style.display = 'none'
+        }
+        // 回复块瞬时上移了 beforeTop-afterTop 距离，用 transform 拉回原位再过渡归零。
+        // 注意：移走内容后必须强制 reflow（读 offsetHeight），否则 getBoundingClientRect
+        // 仍返回旧布局，测不到真实位移 → 不滑动。
+        if (fr !== null) {
+          void fr.offsetHeight
+          const afterTop = fr.getBoundingClientRect().top
+          const dy = beforeTop - afterTop
+          if (Math.abs(dy) > 0.5) {
+            fr.classList.add(SLIDE_CLASS)
+            fr.style.transform = `translateY(${dy}px)`
+            void fr.offsetHeight
+            window.requestAnimationFrame(() => {
+              fr.style.transform = 'translateY(0px)'
+              // 过渡完成后清理临时 class
+              window.setTimeout(() => {
+                fr.classList.remove(SLIDE_CLASS)
+                fr.style.transform = ''
+              }, SLIDE_MS)
+            })
+          }
         }
       }
       if (animate) {
         state.animating = true
         toHide.forEach((w) => w.classList.add(FADING_CLASS))
+        if (frTitle !== null) {
+          // 标题同步淡出
+          frTitle.classList.add(FADING_CLASS)
+        }
         // 强制 reflow：确保 opacity 过渡立即开始（否则浏览器可能批处理延迟）
         void toHide[0].offsetHeight
         window.setTimeout(doMove, FADE_MS)
@@ -274,6 +311,9 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
       // 展开：必须**倒序**恢复——后面的兄弟先就位，前面的节点才能用
       // insertBefore 精确插到它前面。正序会因 next 还在仓库而 appendChild
       // 兜底，导致节点被追加到父容器末尾（跑到回复结果下方）的 bug。
+      const fr = state.finalReply
+      // 插回前测回复块位置（此时内容还在仓库，标题还隐藏）
+      const beforeTop = fr !== null ? fr.getBoundingClientRect().top : 0
       const toShow: HTMLElement[] = []
       for (let i = state.work.length - 1; i >= 0; i--) {
         const w = state.work[i]
@@ -295,8 +335,8 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
         toShow.push(w)
       }
       // 显示最终回复 Think 标题
-      if (state.finalReply !== null) {
-        const qw = state.finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
+      if (fr !== null) {
+        const qw = fr.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
         if (qw !== null) qw.style.display = ''
       }
       bar.classList.remove(COLLAPSED_CLASS)
@@ -305,6 +345,25 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
         // 先设透明插回，下一帧淡入
         state.animating = true
         toShow.forEach((w) => w.classList.add(FADING_CLASS))
+        // 回复块瞬时下移了，用 transform 拉回原位再过渡归零（平滑下移）。
+        // 插回内容后必须强制 reflow，否则 getBoundingClientRect 返回旧布局。
+        if (fr !== null) {
+          void fr.offsetHeight
+          const afterTop = fr.getBoundingClientRect().top
+          const dy = beforeTop - afterTop
+          if (Math.abs(dy) > 0.5) {
+            fr.classList.add(SLIDE_CLASS)
+            fr.style.transform = `translateY(${dy}px)`
+            void fr.offsetHeight
+            window.requestAnimationFrame(() => {
+              fr.style.transform = 'translateY(0px)'
+              window.setTimeout(() => {
+                fr.classList.remove(SLIDE_CLASS)
+                fr.style.transform = ''
+              }, SLIDE_MS)
+            })
+          }
+        }
         window.requestAnimationFrame(() => {
           window.requestAnimationFrame(() => {
             state.animating = false

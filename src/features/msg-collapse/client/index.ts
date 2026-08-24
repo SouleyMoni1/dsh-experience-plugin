@@ -272,25 +272,22 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
           frTitle.classList.remove(FADING_CLASS)
           frTitle.style.display = 'none'
         }
-        // 回复块瞬时上移了 beforeTop-afterTop 距离，用 transform 拉回原位再过渡归零。
-        // 注意：移走内容后必须强制 reflow（读 offsetHeight），否则 getBoundingClientRect
-        // 仍返回旧布局，测不到真实位移 → 不滑动。
+        // 回复块瞬时上移了 beforeTop-afterTop 距离，用 transform 拉回原位再平滑归零。
+        // 用 Web Animations API（element.animate）驱动——DSH 可能给 flowItem 定义了
+        // 自己的 transition/transform，覆盖我们的 CSS 过渡导致「闪现」；animate()
+        // 由浏览器合成器直接逐帧驱动，无视 CSS 优先级，保证平滑滑动。
         if (fr !== null) {
           void fr.offsetHeight
           const afterTop = fr.getBoundingClientRect().top
           const dy = beforeTop - afterTop
           if (Math.abs(dy) > 0.5) {
-            fr.classList.add(SLIDE_CLASS)
-            fr.style.transform = `translateY(${dy}px)`
-            void fr.offsetHeight
-            window.requestAnimationFrame(() => {
-              fr.style.transform = 'translateY(0px)'
-              // 过渡完成后清理临时 class
-              window.setTimeout(() => {
-                fr.classList.remove(SLIDE_CLASS)
-                fr.style.transform = ''
-              }, SLIDE_MS)
-            })
+            fr.animate(
+              [
+                { transform: `translateY(${dy}px)` },
+                { transform: 'translateY(0px)' },
+              ],
+              { duration: SLIDE_MS, easing: 'ease' },
+            )
           }
         }
       }
@@ -345,23 +342,20 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
         // 先设透明插回，下一帧淡入
         state.animating = true
         toShow.forEach((w) => w.classList.add(FADING_CLASS))
-        // 回复块瞬时下移了，用 transform 拉回原位再过渡归零（平滑下移）。
-        // 插回内容后必须强制 reflow，否则 getBoundingClientRect 返回旧布局。
+        // 回复块瞬时下移了，用 transform 拉回原位再平滑归零（平滑下移）。
+        // 用 Web Animations API 驱动（见折叠分支说明）。
         if (fr !== null) {
           void fr.offsetHeight
           const afterTop = fr.getBoundingClientRect().top
           const dy = beforeTop - afterTop
           if (Math.abs(dy) > 0.5) {
-            fr.classList.add(SLIDE_CLASS)
-            fr.style.transform = `translateY(${dy}px)`
-            void fr.offsetHeight
-            window.requestAnimationFrame(() => {
-              fr.style.transform = 'translateY(0px)'
-              window.setTimeout(() => {
-                fr.classList.remove(SLIDE_CLASS)
-                fr.style.transform = ''
-              }, SLIDE_MS)
-            })
+            fr.animate(
+              [
+                { transform: `translateY(${dy}px)` },
+                { transform: 'translateY(0px)' },
+              ],
+              { duration: SLIDE_MS, easing: 'ease' },
+            )
           }
         }
         window.requestAnimationFrame(() => {

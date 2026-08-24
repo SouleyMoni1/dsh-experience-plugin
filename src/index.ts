@@ -68,8 +68,10 @@ export const Config = z.object({
   }).default({
     enabled: true,
     autoInject: true,
-    // schema 输出类型把 dict 键视为必填，运行时接受部分键；这里显式断言。
-    effortsByApi: DEFAULT_EFFORTS_BY_API as never,
+    // 协议级 effortsByApi 默认留空：只有用户显式配置才作为"协议级覆盖"。
+    // 若默认填 DEFAULT_EFFORTS_BY_API，会短路模型族匹配（用户 grok 6 档
+    // 永远被内置 4 档压掉）——这是"新模型思考等级与预设不一致"的根因。
+    effortsByApi: {} as never,
     familyPresets: {},
     providers: [],
     upgradeLegacy: true,

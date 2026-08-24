@@ -107,14 +107,15 @@ function ModuleCard({ title, description, defaultOpen = false, children }: Modul
 export interface ModelReasoningCardProps {
   api: any
   rpc: any
+  remote: any
   t: any
 }
 
 export function ModelReasoningCard(props: ModelReasoningCardProps): any {
-  const { api, rpc, t } = props
+  const { api, rpc, remote, t } = props
   return (
     <ModuleCard title={t('nav')} description={t('cardDescription')}>
-      <ReasoningEditor api={api} rpc={rpc} t={t} />
+      <ReasoningEditor api={api} rpc={rpc} remote={remote} t={t} />
     </ModuleCard>
   )
 }

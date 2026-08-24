@@ -10,12 +10,17 @@
  * 数据流与官方 Models 页一致：settings.describe → 编辑 → settings.update
  * 深合并 patch（数组整体替换、其余字段保留、revision 冲突保护）。
  */
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ClientConnectionRpc, IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { FamilyRule } from '../defaults.js'
 import type { ModelReasoningLocaleKey } from './locales.js'
+
+/** client 端订阅 Host 转发事件的最小面（只用到 settings/document-updated）。 */
+export interface RemoteEventSink {
+  $on(event: 'settings/document-updated', listener: (ns: string, revision: number) => void): () => void
+}
 
 /** pi-ai 的 ModelThinkingLevel 枚举（与 host 端 THINKING_LEVELS 一致）。 */
 export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
@@ -100,6 +105,8 @@ export interface ReasoningEditorInjected {
   api: Pick<IApiClient, 'settings'> | undefined
   /** 系列配置 RPC 通道（host 端 connection.rpc）。 */
   rpc: ClientConnectionRpc | undefined
+  /** 转发事件订阅（settings/document-updated 等 Host 事件）。 */
+  remote: RemoteEventSink | undefined
   t: TranslateNS<'model-reasoning'>
 }
 
@@ -129,6 +136,10 @@ interface Row {
 }
 
 const LLM_NS = 'llm-pi-ai'
+/** 本插件 settings 命名空间（与 host 端 MODEL_REASONING_NS 一致）。 */
+const MR_SETTINGS_NS = 'dsh-experience-plugin'
+/** 收到 document-updated 后延迟重拉：host 端注入有 500ms 防抖 + 异步 update。 */
+const AUTO_REFRESH_DELAY_MS = 900
 
 /** 页面状态。 */
 type Phase = 'loading' | 'ready' | 'error'
@@ -165,7 +176,7 @@ function EffortsChips(props: {
 
 /** 模型思考等级设置页。 */
 export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null {
-  const { api, rpc, t, close } = props
+  const { api, rpc, remote, t, close } = props
   const [phase, setPhase] = useState<Phase>('loading')
   const [error, setError] = useState<string>('')
   const [rows, setRows] = useState<Row[]>([])
@@ -178,14 +189,24 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(0)
   const [saveError, setSaveError] = useState<string>('')
+  /** 是否有未保存的本地编辑（有编辑时自动刷新应让位，避免冲掉用户改动）。 */
+  const dirtyRef = useRef(false)
+  const markDirty = (): void => {
+    dirtyRef.current = true
+  }
 
-  const load = async (): Promise<void> => {
-    setPhase('loading')
-    setError('')
+  const load = async (silent = false): Promise<void> => {
+    if (!silent) {
+      setPhase('loading')
+      setError('')
+    }
     try {
       if (api === undefined) throw new Error('settings api unavailable')
       const response = await api.settings.describe({})
       if (!response.result.ok) throw new Error(response.result.error.message)
+      // 静默刷新在拉取期间用户可能开始编辑（dirty 变 true），
+      // 此时放弃这份旧快照，避免把新改动覆盖掉。
+      if (silent && dirtyRef.current) return
       const namespaces = response.result.value.namespaces
       setWritable(response.result.value.writable)
 
@@ -243,8 +264,13 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
       }
       setPhase('ready')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setPhase('error')
+      if (silent) {
+        // 静默刷新失败：保留现有视图，只记录错误（下次全量加载再暴露）
+        setError(cause instanceof Error ? cause.message : String(cause))
+      } else {
+        setError(cause instanceof Error ? cause.message : String(cause))
+        setPhase('error')
+      }
     }
   }
 
@@ -253,8 +279,36 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api])
 
+  // 订阅 Host 转发的事件：官方 Models 页增删模型 / 手改 settings.yaml 后，
+  // host 已自动注入 reasoningEfforts，这里自动重拉，避免"要手动刷新才看到"。
+  // 用户正在编辑（dirty）时让位——等下次保存或手动刷新再同步，不冲掉改动。
+  // host 端注入带 RESCAN_DEBOUNCE（500ms）+ 异步 update，这里多留一点余量，
+  // 保证重拉时能看到注入后的最终值，而不是半路状态。
+  const loadRef = useRef(load)
+  loadRef.current = load
+  const dirtyRefLocal = dirtyRef
+  useEffect(() => {
+    if (remote === undefined) return
+    let pending: ReturnType<typeof setTimeout> | undefined
+    const dispose = remote.$on('settings/document-updated', (ns) => {
+      if (ns !== LLM_NS && ns !== MR_SETTINGS_NS) return
+      if (dirtyRefLocal.current) return
+      if (pending !== undefined) clearTimeout(pending)
+      pending = setTimeout(() => {
+        pending = undefined
+        void loadRef.current(true)
+      }, AUTO_REFRESH_DELAY_MS)
+    })
+    return () => {
+      if (pending !== undefined) clearTimeout(pending)
+      dispose()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote])
+
   /** 切换一个模型的某个等级。 */
   const toggleLevel = (rowIndex: number, modelIndex: number, level: ThinkingLevel): void => {
+    markDirty()
     setRows((prev) => {
       const next = structuredClone(prev)
       const efforts = next[rowIndex].models[modelIndex].efforts
@@ -267,6 +321,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
 
   /** 切换系列配置里的一个等级。 */
   const toggleFamilyEffort = (index: number, level: ThinkingLevel): void => {
+    markDirty()
     setFamilies((prev) => {
       const next = structuredClone(prev)
       const efforts = next[index].efforts
@@ -282,6 +337,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
 
   /** 切换默认配置里的一个等级。 */
   const toggleDefaultEffort = (level: ThinkingLevel): void => {
+    markDirty()
     setDefaultEfforts((prev) => {
       const next = structuredClone(prev)
       const current = next[level]
@@ -306,6 +362,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
 
   /** 把单个模型行按当前系列配置重新配对。 */
   const refreshModelFromFamily = (rowIndex: number, modelIndex: number): void => {
+    markDirty()
     setRows((prev) => {
       const next = structuredClone(prev)
       next[rowIndex].models[modelIndex].efforts = effortsForModel(next[rowIndex].models[modelIndex].id)
@@ -315,6 +372,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
 
   /** 把整个渠道下所有模型按当前系列配置一键重新配对。 */
   const refreshProvider = (rowIndex: number): void => {
+    markDirty()
     setRows((prev) => {
       const next = structuredClone(prev)
       for (const model of next[rowIndex].models) model.efforts = effortsForModel(model.id)
@@ -324,6 +382,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
 
   /** 添加一个空白系列。 */
   const addFamily = (): void => {
+    markDirty()
     setFamilies((prev) => [
       ...prev,
       { id: 'family-' + Date.now(), label: '', pattern: '', efforts: { off: null, low: 'low', medium: 'medium', high: 'high' } },
@@ -332,6 +391,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
 
   /** 删除一个系列。 */
   const removeFamily = (index: number): void => {
+    markDirty()
     setFamilies((prev) => prev.filter((_, i) => i !== index))
   }
 
@@ -380,6 +440,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
       setLlmRevision(llmResponse.result.value.revision)
 
       setSavedAt(Date.now())
+      dirtyRef.current = false
       void load()
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : String(cause))
@@ -435,6 +496,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
                       disabled={!writable || saving}
                       onChange={(event) => {
                         const value = event.target.value
+                        markDirty()
                         setFamilies((prev) => {
                           const next = structuredClone(prev)
                           next[index] = { ...next[index], label: value }
@@ -452,6 +514,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
                       disabled={!writable || saving}
                       onChange={(event) => {
                         const value = event.target.value
+                        markDirty()
                         setFamilies((prev) => {
                           const next = structuredClone(prev)
                           next[index] = { ...next[index], pattern: value }

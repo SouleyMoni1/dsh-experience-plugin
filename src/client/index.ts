@@ -7,6 +7,7 @@ import type { ConnectionHandle, IApiClient } from '@deepseek-ai/dsh-client-conne
 // 让官方包的 declare module 合并进 SlotMap：settings.plugin.item 槽位契约。
 import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { applyModelReasoningClient } from '../features/model-reasoning/client/index.js'
+import type { ReasoningEditorInjected } from '../features/model-reasoning/client/ReasoningEditor.js'
 import { CliMimicCard, ModelReasoningCard } from '../features/settings/client/ExperienceSettingsCard.js'
 
 /**
@@ -34,12 +35,13 @@ export function apply(ctx: ClientContext): void {
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   const t = ctx.locale.bind('model-reasoning')
   const api = connection?.api as Pick<IApiClient, 'settings'> | undefined
+  const remote = ctx.remote as unknown as ReasoningEditorInjected['remote']
 
   ctx.effect(() => ctx.slots.inject('settings.plugin.item', function* () {
     yield ctx.slots.register({
       name: 'settings.plugin.item',
       key: MODEL_REASONING_NS,
-      inject: () => ({ api, rpc: connection?.rpc, t }),
+      inject: () => ({ api, rpc: connection?.rpc, remote, t }),
     }, ModelReasoningCard)
     yield ctx.slots.register({
       name: 'settings.plugin.item',

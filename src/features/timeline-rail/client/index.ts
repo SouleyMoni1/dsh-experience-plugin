@@ -516,7 +516,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
     }
   }
 
-  /** 显示预览卡片（白色圆角，消息 + 回复）。 */
+  /** 显示预览卡片（白色圆角，消息 + 回复）。淡入 + 轻微上浮动画。 */
   const showTip = (tick: { question: string; reply: string }, anchor: HTMLElement): void => {
     hideTip()
     const tip = document.createElement('div')
@@ -539,13 +539,34 @@ export function applyTimelineRail(ctx: ClientContext): void {
     const ar = anchor.getBoundingClientRect()
     tip.style.left = `${ar.right + 8}px`
     tip.style.top = `${Math.max(4, ar.top - 24)}px`
+    // 淡入 + 轻微上浮（WAAPI 驱动，无视 CSS 优先级覆盖）
+    tip.animate(
+      [
+        { opacity: 0, transform: 'translateY(6px)' },
+        { opacity: 1, transform: 'translateY(0px)' },
+      ],
+      { duration: 160, easing: 'ease-out' },
+    )
     tipEl = tip
   }
 
-  /** 隐藏预览卡片。 */
+  /** 隐藏预览卡片。淡出 + 轻微下沉动画后移除。 */
   const hideTip = (): void => {
-    tipEl?.remove()
+    const tip = tipEl
     tipEl = null
+    if (tip === null) return
+    const anim = tip.animate(
+      [
+        { opacity: 1, transform: 'translateY(0px)' },
+        { opacity: 0, transform: 'translateY(4px)' },
+      ],
+      { duration: 120, easing: 'ease-in' },
+    )
+    anim.onfinish = () => tip.remove()
+    // 兜底：动画被中断（如页面隐藏）时也确保移除
+    window.setTimeout(() => {
+      if (tip.isConnected) tip.remove()
+    }, 200)
   }
 
   /** 滚动 + resize 热路径。

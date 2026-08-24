@@ -270,6 +270,13 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   apply()
 }
 
+/** 记录上次扫描时「末尾用户消息」的唯一标记：检测新回合（发送新消息）→ 自动折叠上一轮。
+ *  用「末尾用户消息元素引用」判断——自动加载历史是在顶部插入，末尾用户消息不变；
+ *  只有真正发送新消息才会让末尾用户消息变化。 */
+let lastTailUserEl: Element | null = null
+/** 当前「最新回合」的 bar 引用：新回合出现时用它精确折叠上一轮。 */
+let lastRoundBar: HTMLElement | null = null
+
 /** 主装配：扫描会话，为每个回合的第一个处理过程上方设置折叠横条。 */
 function applyCollapse(): void {
   const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
@@ -279,6 +286,17 @@ function applyCollapse(): void {
   // 找所有用户消息行
   const userIdxs: number[] = []
   items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) userIdxs.push(i) })
+  // 新回合检测：末尾用户消息变化（发送了新消息）→ 自动折叠上一轮。
+  // （自动加载历史是在顶部插入，末尾用户消息元素引用不变，不会误触发）
+  const tailUser = userIdxs.length > 0 ? items[userIdxs[userIdxs.length - 1]].querySelector('.gdEzaW_userRow') : null
+  if (lastTailUserEl !== null && tailUser !== null && tailUser !== lastTailUserEl) {
+    // 折叠「上一轮」= 之前记录的最新回合 bar（新回合 bar 此时可能还没创建，
+    // 不能用 bars[bars.length-2]——新 bar 未出现时最后一个 bar 才是上一轮）
+    if (lastRoundBar !== null && lastRoundBar.isConnected && !lastRoundBar.classList.contains(COLLAPSED_CLASS)) {
+      lastRoundBar.querySelector<HTMLButtonElement>(`.${TOGGLE_CLASS}`)?.click()
+    }
+  }
+  if (tailUser !== null) lastTailUserEl = tailUser
   // 清理已不存在的横条（会话切换 / 行被虚拟滚动卸载时）
   scroll.querySelectorAll(`.${BAR_CLASS}`).forEach((b) => {
     if (!b.isConnected) b.remove()
@@ -287,6 +305,13 @@ function applyCollapse(): void {
     const start = userIdxs[k]
     const end = k + 1 < userIdxs.length ? userIdxs[k + 1] - 1 : items.length - 1
     setupRound(start, end, items)
+  }
+  // 记录当前最新回合的 bar 引用：供下次「新回合自动折叠上一轮」使用
+  const allBars = scroll.querySelectorAll<HTMLElement>(`.${BAR_CLASS}`)
+  if (allBars.length > 0) {
+    lastRoundBar = allBars[allBars.length - 1]
+  } else {
+    lastRoundBar = null
   }
 }
 

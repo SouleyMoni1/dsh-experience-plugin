@@ -24,6 +24,7 @@ const ROOT_CLASS = 'dsh-timeline-rail'
 const TRACK_CLASS = 'dsh-timeline-track'
 const ITEM_CLASS = 'dsh-timeline-item'
 const TIP_CLASS = 'dsh-timeline-tip'
+const MORE_CLASS = 'dsh-timeline-more'
 const CSS_TAG = 'dsh-experience/timeline-rail.css'
 
 /** 轨道宽度（容纳右侧 3 倍加长 + 右移 10px）。 */
@@ -38,6 +39,8 @@ const TICK_GAP = 12
 const SCROLL_PAD = 120
 /** 时间轴最多显示的用户消息条数（从最新往前数）。 */
 const MAX_TICKS = 30
+/** 自动补载历史的最大点击次数（防止死循环）。 */
+const MAX_LOAD_MORE = 15
 
 /** 注入样式（先移除旧版同 key 标签，保证热更新后新样式生效）。 */
 function injectCss(): void {
@@ -115,7 +118,19 @@ function injectCss(): void {
     `.${TIP_CLASS} .dsh-timeline-tip-a{`,
     'color:rgba(87,96,106,.8);font-size:12px;',
     'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;',
-    '}'
+    '}',
+    /* 顶部「加载更早」触发器（省略号按钮） */
+    `.${MORE_CLASS}{`,
+    'position:absolute;top:2px;left:0;',
+    'width:100%;height:24px;',
+    'display:flex;align-items:center;justify-content:center;',
+    'background:transparent;border:none;padding:0;',
+    'cursor:pointer;pointer-events:auto;',
+    'color:rgba(127,127,127,.8);font-size:16px;line-height:1;',
+    'transition:color .12s ease;',
+    '}',
+    `.${MORE_CLASS}:hover{color:var(--dsw-alias-state-info-primary,#4ea1ff);}`,
+    `.${MORE_CLASS}::before{content:"⋯";}`,
   ].join('')
   document.head.appendChild(tag)
 }
@@ -172,6 +187,10 @@ export function applyTimelineRail(ctx: ClientContext): void {
   let raf = 0
   /** 当前 hover 的横线索引（-1 = 未 hover）。hover 期间不显示 active 高亮。 */
   let hoverIdx = -1
+  /** 是否正在自动补载历史（防止并发点击）。 */
+  let loadingHistory = false
+  /** 当前会话已自动补载的次数（防止死循环，会话切换时重置）。 */
+  let autoLoadCount = 0
 
   /** 当前数据缓存（供 hover/active 计算）。 */
   let ticksCache: Array<{ row: HTMLElement; top: number; question: string; reply: string }> = []
@@ -257,6 +276,49 @@ export function applyTimelineRail(ctx: ClientContext): void {
     return idx
   }
 
+  /** 官方「加载更早」按钮是否存在。 */
+  const hasOlderButton = (scroll: HTMLElement): boolean => {
+    const btn = Array.from(scroll.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+      /加载更早/.test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? '')))
+    return btn !== undefined
+  }
+
+  /** 触发官方「加载更早」，轮询等待内容插入后用锚点补偿滚动位置（视口不跳）。 */
+  const loadMoreHistory = (): void => {
+    const scroll = scrollEl
+    if (scroll === null || loadingHistory) return
+    const btn = Array.from(scroll.querySelectorAll<HTMLButtonElement>('button')).find((b) =>
+      /加载更早/.test((b.textContent ?? '') + (b.getAttribute('aria-label') ?? '')))
+    if (btn === undefined) return
+    // 锚点：取视口内第一条可见消息（flowItem）作为视觉锚
+    const viewTop = scroll.scrollTop
+    const viewBottom = viewTop + (scroll.clientHeight || 1)
+    const candidates = Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
+      const t = f.offsetTop
+      return t >= viewTop && t <= viewBottom - 10
+    })
+    const anchor = candidates[0] ?? null
+    const anchorViewY = anchor !== null ? anchor.offsetTop - viewTop : 0
+    const beforeH = scroll.scrollHeight
+    loadingHistory = true
+    btn.click()
+    // 轮询：内容插入（scrollHeight 变化）后补偿滚动位置
+    let tries = 0
+    const poll = (): void => {
+      tries++
+      if (scroll.scrollHeight !== beforeH || tries > 40) {
+        if (anchor !== null && anchor.isConnected) {
+          scroll.scrollTop = Math.max(0, anchor.offsetTop - anchorViewY)
+        }
+        loadingHistory = false
+        render()
+        return
+      }
+      setTimeout(poll, 120)
+    }
+    setTimeout(poll, 120)
+  }
+
   /** 重绘所有短横线。 */
   const render = (): void => {
     const ctx2 = ensureRail()
@@ -299,6 +361,26 @@ export function applyTimelineRail(ctx: ClientContext): void {
     // 移除多余横线
     for (const el of Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))) {
       if (!keep.has(el)) el.remove()
+    }
+    // 顶部「加载更早」触发器：有历史可加载时显示
+    let moreEl = track.querySelector<HTMLButtonElement>(`.${MORE_CLASS}`)
+    if (hasOlderButton(scroll)) {
+      if (moreEl === null) {
+        moreEl = document.createElement('button')
+        moreEl.type = 'button'
+        moreEl.className = MORE_CLASS
+        moreEl.setAttribute('aria-label', '加载更早的消息')
+        moreEl.title = '加载更早的消息'
+        moreEl.addEventListener('click', () => loadMoreHistory())
+        track.appendChild(moreEl)
+      }
+    } else if (moreEl !== null) {
+      moreEl.remove()
+    }
+    // 自动补载历史：横线还没集满 30 条、预算未用完、且有更早可加载 → 补一次
+    if (ticks.length < MAX_TICKS && autoLoadCount < MAX_LOAD_MORE && hasOlderButton(scroll)) {
+      autoLoadCount++
+      loadMoreHistory()
     }
   }
 
@@ -410,6 +492,8 @@ export function applyTimelineRail(ctx: ClientContext): void {
       scrollEl = null
       ticksCache = []
       hoverIdx = -1
+      loadingHistory = false
+      autoLoadCount = 0
     }
   }, 'timeline-rail: message timeline marks')
 }

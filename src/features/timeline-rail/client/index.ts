@@ -41,6 +41,8 @@ const SCROLL_PAD = 120
 const MAX_TICKS = 30
 /** 自动补载历史的最大点击次数（防止死循环）。 */
 const MAX_LOAD_MORE = 15
+/** DOM 观察器防抖间隔（ms），压制会话内高频变更导致的重复渲染。 */
+const OBS_DEBOUNCE_MS = 250
 
 /** 注入样式（先移除旧版同 key 标签，保证热更新后新样式生效）。 */
 function injectCss(): void {
@@ -194,6 +196,14 @@ export function applyTimelineRail(ctx: ClientContext): void {
 
   /** 当前数据缓存（供 hover/active 计算）。 */
   let ticksCache: Array<{ row: HTMLElement; top: number; question: string; reply: string }> = []
+  /** 文本提取缓存：行元素 → { q, r }，行没变不重算（省掉大量 querySelector/textContent）。 */
+  const textCache = new Map<HTMLElement, { q: string; r: string }>()
+  /** 上一次渲染的消息行签名（数量 + 首尾消息 offsetTop），用于跳过无变化时的全量重绘。 */
+  let lastSig = ''
+  /** 与 lastSig 对应的消息行数组（滚动时复用，避免反复全量扫描）。 */
+  let lastRows: HTMLElement[] = []
+  /** MutationObserver 防抖计时器。 */
+  let obsTimer = 0
 
   /**
    * 定位轨道：挂在 .wSkVaW_root（不滚动）里，钉在对话区左侧、与滚动区对齐。
@@ -228,26 +238,29 @@ export function applyTimelineRail(ctx: ClientContext): void {
     return { rail: el, scroll }
   }
 
-  /** 只收集「主人发送的用户消息」：用户气泡行（.gdEzaW_userRow / .gdEzaW_bubble），
-   *  排除助手回复块、工具调用、系统提示。最多保留最新的 MAX_TICKS 条。 */
+  /** 只收集「主人发送的用户消息」：优先 .gdEzaW_userRow（一次原生查询，最快），
+   *  找不到才走 flowItem 结构判定兜底。最多保留最新的 MAX_TICKS 条。 */
   const collectUserMessages = (scroll: HTMLElement): HTMLElement[] => {
-    const all = Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
-      // 用户消息特征：含用户气泡（gdEzaW_bubble / userRow）
-      const hasUserRow = f.querySelector('.gdEzaW_userRow') !== null
-      const hasBubble = f.querySelector('.gdEzaW_bubble, [class*="bubble"]') !== null
-      // 助手回复块特征（含 markdown 或 Sxvs8a 回复体）→ 排除
-      const hasMarkdown = f.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null
-      const hasReplyBody = f.querySelector('[class*="Sxvs8a_root"], [class*="Sxvs8a_body"]') !== null
-      // 工具调用行 → 排除
-      const hasCall = f.querySelector('[class*="ztWv_q_callRow"]') !== null
-      if (hasCall) return false
-      return (hasUserRow || hasBubble) && !hasMarkdown && !hasReplyBody
-    })
+    const direct = Array.from(scroll.querySelectorAll<HTMLElement>('.gdEzaW_userRow'))
+    const all = direct.length > 0
+      ? direct
+      : Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
+          // 用户消息特征：含用户气泡（gdEzaW_bubble / userRow）
+          const hasUserRow = f.querySelector('.gdEzaW_userRow') !== null
+          const hasBubble = f.querySelector('.gdEzaW_bubble, [class*="bubble"]') !== null
+          // 助手回复块特征（含 markdown 或 Sxvs8a 回复体）→ 排除
+          const hasMarkdown = f.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null
+          const hasReplyBody = f.querySelector('[class*="Sxvs8a_root"], [class*="Sxvs8a_body"]') !== null
+          // 工具调用行 → 排除
+          const hasCall = f.querySelector('[class*="ztWv_q_callRow"]') !== null
+          if (hasCall) return false
+          return (hasUserRow || hasBubble) && !hasMarkdown && !hasReplyBody
+        })
     // 取最新的 MAX_TICKS 条（DOM 顺序即时间顺序，末尾最新）
     return all.slice(-MAX_TICKS)
   }
 
-  /** 收集横线信息（按顺序，聚合排列；消息多时自动缩间距防溢出）。 */
+  /** 收集横线信息（按顺序，聚合排列；消息多时自动缩间距防溢出；文本走缓存）。 */
   const collectTicks = (scroll: HTMLElement, trackH: number): Array<{ row: HTMLElement; top: number; question: string; reply: string }> => {
     const rows = collectUserMessages(scroll)
     const n = rows.length
@@ -256,19 +269,25 @@ export function applyTimelineRail(ctx: ClientContext): void {
     const gap = Math.min(TICK_GAP, n > 1 ? Math.floor((trackH - 20) / (n - 1)) : TICK_GAP)
     const totalH = (n - 1) * gap
     const startTop = Math.max(0, (trackH - totalH) / 2)
-    return rows.map((row, i) => ({
-      row,
-      top: startTop + i * gap,
-      question: extractQuestion(row),
-      reply: extractReply(row)
-    }))
+    return rows.map((row, i) => {
+      // 文本提取缓存：行还在且未变 → 复用，省 querySelector/textContent
+      let cached = textCache.get(row)
+      if (cached === undefined) {
+        cached = { q: extractQuestion(row), r: extractReply(row) }
+        textCache.set(row, cached)
+      }
+      return {
+        row,
+        top: startTop + i * gap,
+        question: cached.q,
+        reply: cached.r
+      }
+    })
   }
 
-  /** 计算当前会话停留的横线索引（视口内最靠下的可见用户消息）。 */
-  const activeIndex = (scroll: HTMLElement): number => {
-    const rows = collectUserMessages(scroll)
-    const st = scroll.scrollTop
-    const viewBottom = st + (scroll.clientHeight || 1)
+  /** 计算当前会话停留的横线索引（视口内最靠下的可见用户消息）。
+   *  直接吃已收集的行数组，避免重复全量扫描。 */
+  const activeIndex = (rows: HTMLElement[], st: number, viewBottom: number): number => {
     let idx = -1
     for (let i = 0; i < rows.length; i++) {
       if (rows[i].offsetTop <= viewBottom - 40) idx = i
@@ -327,42 +346,66 @@ export function applyTimelineRail(ctx: ClientContext): void {
     const track = rail.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
     if (track === null) return
     const trackH = rail.clientHeight || 1
-    const ticks = collectTicks(scroll, trackH)
-    ticksCache = ticks
-    const activeIdx = activeIndex(scroll)
-    const keep = new Set<HTMLElement>()
-    ticks.forEach((tick, i) => {
-      const key = String(Math.round(tick.top))
-      let el = track.querySelector<HTMLButtonElement>(`.${ITEM_CLASS}[data-top="${key}"]`)
-      if (el === null) {
-        el = document.createElement('button')
-        el.type = 'button'
-        el.className = ITEM_CLASS
-        el.dataset.top = key
-        el.dataset.idx = String(i)
-        el.style.top = `${tick.top}px`
-        el.addEventListener('mouseenter', () => onHover(el as HTMLButtonElement, i))
-        el.addEventListener('mouseleave', () => onLeave())
-        el.addEventListener('click', () => {
-          if (scrollEl === null) return
-          const target = tick.row.offsetTop - SCROLL_PAD
-          scrollEl.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
-        })
-        track.appendChild(el)
-      } else {
-        el.dataset.idx = String(i)
-      }
-      // 当前会话高亮（仅非 hover 时）
-      el.dataset.active = String(hoverIdx === -1 && i === activeIdx)
-      el.setAttribute('aria-label', tick.question)
-      el.title = tick.question
-      keep.add(el)
-    })
-    // 移除多余横线
-    for (const el of Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))) {
-      if (!keep.has(el)) el.remove()
+    // 消息集合签名：数量 + 首个/末个用户消息 offsetTop（判断是否需要重建横线）
+    const rows = collectUserMessages(scroll)
+    const sigParts: string[] = [String(rows.length)]
+    if (rows.length > 0) {
+      sigParts.push(String(rows[0].offsetTop), String(rows[rows.length - 1].offsetTop))
     }
-    // 顶部「加载更早」触发器：有历史可加载时显示
+    const sig = sigParts.join(':')
+    if (sig !== lastSig) {
+      lastSig = sig
+      lastRows = rows
+      // 清理过期缓存（行已不在 DOM）
+      if (textCache.size > 0) {
+        for (const k of textCache.keys()) {
+          if (!k.isConnected) textCache.delete(k)
+        }
+      }
+      const ticks = collectTicks(scroll, trackH)
+      ticksCache = ticks
+      const activeIdx = activeIndex(lastRows, scroll.scrollTop, scroll.scrollTop + (scroll.clientHeight || 1))
+      const keep = new Set<HTMLElement>()
+      ticks.forEach((tick, i) => {
+        const key = String(Math.round(tick.top))
+        let el = track.querySelector<HTMLButtonElement>(`.${ITEM_CLASS}[data-top="${key}"]`)
+        if (el === null) {
+          el = document.createElement('button')
+          el.type = 'button'
+          el.className = ITEM_CLASS
+          el.dataset.top = key
+          el.dataset.idx = String(i)
+          el.style.top = `${tick.top}px`
+          el.addEventListener('mouseenter', () => onHover(el as HTMLButtonElement, i))
+          el.addEventListener('mouseleave', () => onLeave())
+          el.addEventListener('click', () => {
+            if (scrollEl === null) return
+            const target = tick.row.offsetTop - SCROLL_PAD
+            scrollEl.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
+          })
+          track.appendChild(el)
+        } else {
+          el.dataset.idx = String(i)
+        }
+        // 当前会话高亮（仅非 hover 时）
+        el.dataset.active = String(hoverIdx === -1 && i === activeIdx)
+        el.setAttribute('aria-label', tick.question)
+        el.title = tick.question
+        keep.add(el)
+      })
+      // 移除多余横线
+      for (const el of Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))) {
+        if (!keep.has(el)) el.remove()
+      }
+    } else {
+      // 行集合没变：只更新 active 高亮（跟随滚动），不重建横线
+      const activeIdx = activeIndex(lastRows, scroll.scrollTop, scroll.scrollTop + (scroll.clientHeight || 1))
+      const items = track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`)
+      for (const el of items) {
+        el.dataset.active = String(hoverIdx === -1 && Number(el.dataset.idx ?? -1) === activeIdx)
+      }
+    }
+    // 顶部「加载更早」触发器：有历史可加载时显示（每次渲染都同步）
     let moreEl = track.querySelector<HTMLButtonElement>(`.${MORE_CLASS}`)
     if (hasOlderButton(scroll)) {
       if (moreEl === null) {
@@ -377,10 +420,16 @@ export function applyTimelineRail(ctx: ClientContext): void {
     } else if (moreEl !== null) {
       moreEl.remove()
     }
-    // 自动补载历史：横线还没集满 30 条、预算未用完、且有更早可加载 → 补一次
-    if (ticks.length < MAX_TICKS && autoLoadCount < MAX_LOAD_MORE && hasOlderButton(scroll)) {
+    // 自动补载历史：横线还没集满 30 条、预算未用完、且有更早可加载 → 补一次。
+    // 放 setTimeout 避免与 MutationObserver 在同一轮互相触发。
+    if (
+      (ticksCache?.length ?? 0) < MAX_TICKS &&
+      autoLoadCount < MAX_LOAD_MORE &&
+      !loadingHistory &&
+      hasOlderButton(scroll)
+    ) {
       autoLoadCount++
-      loadMoreHistory()
+      window.setTimeout(() => loadMoreHistory(), 300)
     }
   }
 
@@ -416,8 +465,8 @@ export function applyTimelineRail(ctx: ClientContext): void {
       el.classList.remove('dsh-timeline-hover-self', 'dsh-timeline-hover-1', 'dsh-timeline-hover-2')
     }
     // 重新计算 active（基于缓存数据）
-    if (scrollEl !== null) {
-      const activeIdx = activeIndex(scrollEl)
+    if (scrollEl !== null && lastRows.length > 0) {
+      const activeIdx = activeIndex(lastRows, scrollEl.scrollTop, scrollEl.scrollTop + (scrollEl.clientHeight || 1))
       for (const el of items) {
         el.dataset.active = String(Number(el.dataset.idx ?? -1) === activeIdx)
       }
@@ -471,26 +520,38 @@ export function applyTimelineRail(ctx: ClientContext): void {
       scrollEl.addEventListener('scroll', schedule, { passive: true })
       window.addEventListener('resize', schedule)
     }
-    // 消息新增 / 切换会话 / DOM 变化时重挂 + 重绘
+    // 消息新增 / 切换会话 / DOM 变化：防抖 250ms 合并高频变更（工具调用、流式输出），
+    // 避免每帧都全量 render。rail 失联时立即重建。
     const observer = new MutationObserver(() => {
       if (railEl === null || !railEl.isConnected) {
         render()
-      } else {
-        schedule()
+        return
       }
+      if (obsTimer !== 0) return
+      obsTimer = window.setTimeout(() => {
+        obsTimer = 0
+        render()
+      }, OBS_DEBOUNCE_MS)
     })
     observer.observe(document.documentElement, { childList: true, subtree: true })
     return () => {
       if (raf !== 0) cancelAnimationFrame(raf)
+      if (obsTimer !== 0) {
+        clearTimeout(obsTimer)
+        obsTimer = 0
+      }
       hideTip()
       scrollEl?.removeEventListener('scroll', schedule)
       window.removeEventListener('resize', schedule)
       observer.disconnect()
+      textCache.clear()
       railEl?.remove()
       railEl = null
       hostEl = null
       scrollEl = null
       ticksCache = []
+      lastRows = []
+      lastSig = ''
       hoverIdx = -1
       loadingHistory = false
       autoLoadCount = 0

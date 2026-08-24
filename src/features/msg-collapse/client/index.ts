@@ -324,54 +324,80 @@ function findOlderButton(scroll: HTMLElement): HTMLButtonElement | null {
 
 /** 自动加载历史到最多 30 条用户消息：反复点「加载更早」直到达到上限或按钮消失。
  *  达到 30 条后**保留**原版「加载更早」按钮，由用户手动点继续加载。
- *  带次数上限防死循环；每轮等待 scrollHeight 变化后再点下一次。 */
+ *
+ *  **性能策略（温和单点）**：实测 DSH 从零加载历史时每次「加载更早」只插 ~2 条、
+ *  响应 ~1s。**连点会触发 DSH 并发请求风暴，把渲染挤爆（首次消息被拖到 6.5s）**；
+ *  串行等 scrollHeight 又太慢（15s+）。折中：**每次只点 1 下**，等「用户消息数真正
+ *  增加」再点下一次——不风暴、UI 保持响应，总时长由 DSH 实际吞吐决定。
+ *
+ *  **会话切换安全**：每轮重新获取 scrollBody——DSH 切会话会重建 scrollBody，
+ *  检测到切换立即终止旧加载，由 observer 在新会话上重新触发。 */
 const AUTO_LOAD_USERS = 30
-let loadAllRunning = false
+/** 加载中标记：存启动时间戳（0=空闲）。比布尔更稳——若旧加载链因切换会话而
+ *  卡死，超过 STALE_MS 后新调用可直接接管，不会永久锁死自动加载。 */
+let loadAllRunning = 0
+const LOAD_STALE_MS = 15000
 function loadAllHistory(): void {
   const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
   if (scroll === null) return
-  // 防止并发触发
-  if (loadAllRunning) return
-  loadAllRunning = true
+  const now = performance.now()
+  // 防止并发触发；但加载链卡死（超时）时允许接管
+  if (loadAllRunning !== 0 && now - loadAllRunning < LOAD_STALE_MS) return
+  loadAllRunning = now
 
-  const MAX_TRIES = 60 // 单次会话加载上限（防异常死循环）
+  /** 统一结束：释放加载锁 + 重扫。 */
+  const finish = (): void => {
+    loadAllRunning = 0
+    applyCollapse()
+  }
+
+  const MAX_TRIES = 40 // 单次会话加载轮数上限（防异常死循环）
   let tries = 0
+
   const step = (): void => {
+    // 会话切换检测
+    const cur = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+    if (cur === null || cur !== scroll) {
+      finish()
+      return
+    }
     if (tries >= MAX_TRIES) {
-      loadAllRunning = false
-      applyCollapse()
+      finish()
       return
     }
     const btn = findOlderButton(scroll)
     if (btn === null) {
       // 全部加载完成（没有更早历史了）
-      loadAllRunning = false
-      applyCollapse()
+      finish()
       return
     }
-    // 数已加载的用户消息数
-    const userCount = scroll.querySelectorAll('.gdEzaW_userRow').length
-    if (userCount >= AUTO_LOAD_USERS) {
-      // 已达到 30 条上限：停止自动加载，保留原版「加载更早」按钮
-      loadAllRunning = false
-      applyCollapse()
+    // 达到 30 条上限：停止自动加载，保留原版「加载更早」按钮
+    if (scroll.querySelectorAll('.gdEzaW_userRow').length >= AUTO_LOAD_USERS) {
+      finish()
       return
     }
-    const beforeH = scroll.scrollHeight
+    // 点 1 下，等用户消息数真正增加（DSH 完成一次插入）再继续
+    const usersBefore = scroll.querySelectorAll('.gdEzaW_userRow').length
     tries++
     btn.click()
-    // 等内容插入（scrollHeight 变化），再继续
     let poll = 0
     const check = (): void => {
-      poll++
-      if (scroll.scrollHeight !== beforeH || poll > 30) {
-        // 内容已插入，等渲染稳定再点下一次
-        window.setTimeout(step, 150)
+      // 检查期间切会话 → 终止
+      const cur2 = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+      if (cur2 !== scroll) {
+        finish()
         return
       }
-      window.setTimeout(check, 120)
+      const usersNow = scroll.querySelectorAll('.gdEzaW_userRow').length
+      poll++
+      if (usersNow > usersBefore || poll > 40) {
+        // 本次插入完成（或超时 8s），给 DSH 渲染留 200ms 缓冲，继续下一轮
+        window.setTimeout(step, 200)
+        return
+      }
+      window.setTimeout(check, 200)
     }
-    window.setTimeout(check, 120)
+    window.setTimeout(check, 200)
   }
   window.setTimeout(step, 100)
 }
@@ -392,13 +418,17 @@ export function applyMsgCollapse(ctx: ClientContext): void {
       if (timer !== 0) return
       timer = window.setTimeout(() => {
         timer = 0
+        // 加载历史期间跳过全量扫描：loadAllHistory 每次点击都会触发大量
+        // DOM 变更，若此时又全量扫描几千条 flowItem，主线程会被占满导致
+        // 切回会话时停顿。加载完成时 loadAllHistory 自己会 applyCollapse。
+        if (loadAllRunning) return
         applyCollapse()
-        // 有「加载更早」按钮 → 自动继续加载历史（直到全部加载完）
+        // 有「加载更早」按钮 → 自动继续加载历史（直到 30 条上限）
         const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
         if (scroll !== null && findOlderButton(scroll) !== null) {
           loadAllHistory()
         }
-      }, 300)
+      }, 500)
     })
     observer.observe(document.documentElement, { childList: true, subtree: true })
     // 滚动时虚拟滚动可能卸载/重挂行，轻量清理失联横条

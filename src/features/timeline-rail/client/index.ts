@@ -36,6 +36,8 @@ const TICK_LEFT = 16
 const TICK_GAP = 12
 /** 点击滚动时的顶部留白（px）。 */
 const SCROLL_PAD = 120
+/** 时间轴最多显示的用户消息条数（从最新往前数）。 */
+const MAX_TICKS = 30
 
 /** 注入样式（先移除旧版同 key 标签，保证热更新后新样式生效）。 */
 function injectCss(): void {
@@ -207,25 +209,28 @@ export function applyTimelineRail(ctx: ClientContext): void {
     return { rail: el, scroll }
   }
 
-  /** 通用识别所有「消息块」：用户气泡 + 助手回复块（Sxvs8a_root/markdown），排除工具调用行与系统提示。 */
-  const collectMessageBlocks = (scroll: HTMLElement): HTMLElement[] => {
-    return Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
-      // 工具调用行（Read/Edit/Pwsh…）不算消息
-      if (f.querySelector('[class*="ztWv_q_callRow"]') !== null) return false
-      const text = (f.textContent ?? '').replace(/\s+/g, ' ').trim()
-      // 系统提示（上下文压缩/注入/运行中状态/时间戳）不算消息
-      if (/上下文已压缩|上下文注入|运行中|^\d{1,2}:\d{2}\s*·/.test(text)) return false
-      // 助手回复块（Sxvs8a_root 含 markdown）与用户气泡都算
-      const hasReply = f.querySelector('[class*="Sxvs8a_root"], [class*="Sxvs8a_body"]') !== null
-      const hasMarkdown = f.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null
+  /** 只收集「主人发送的用户消息」：用户气泡行（.gdEzaW_userRow / .gdEzaW_bubble），
+   *  排除助手回复块、工具调用、系统提示。最多保留最新的 MAX_TICKS 条。 */
+  const collectUserMessages = (scroll: HTMLElement): HTMLElement[] => {
+    const all = Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
+      // 用户消息特征：含用户气泡（gdEzaW_bubble / userRow）
+      const hasUserRow = f.querySelector('.gdEzaW_userRow') !== null
       const hasBubble = f.querySelector('.gdEzaW_bubble, [class*="bubble"]') !== null
-      return hasReply || hasMarkdown || hasBubble
+      // 助手回复块特征（含 markdown 或 Sxvs8a 回复体）→ 排除
+      const hasMarkdown = f.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null
+      const hasReplyBody = f.querySelector('[class*="Sxvs8a_root"], [class*="Sxvs8a_body"]') !== null
+      // 工具调用行 → 排除
+      const hasCall = f.querySelector('[class*="ztWv_q_callRow"]') !== null
+      if (hasCall) return false
+      return (hasUserRow || hasBubble) && !hasMarkdown && !hasReplyBody
     })
+    // 取最新的 MAX_TICKS 条（DOM 顺序即时间顺序，末尾最新）
+    return all.slice(-MAX_TICKS)
   }
 
-  /** 收集所有消息块信息（按顺序，聚合排列；消息多时自动缩间距防溢出）。 */
+  /** 收集横线信息（按顺序，聚合排列；消息多时自动缩间距防溢出）。 */
   const collectTicks = (scroll: HTMLElement, trackH: number): Array<{ row: HTMLElement; top: number; question: string; reply: string }> => {
-    const rows = collectMessageBlocks(scroll)
+    const rows = collectUserMessages(scroll)
     const n = rows.length
     if (n === 0) return []
     // 聚合：固定间距排成一组，整组上下居中
@@ -240,9 +245,9 @@ export function applyTimelineRail(ctx: ClientContext): void {
     }))
   }
 
-  /** 计算当前会话停留的横线索引（视口内最靠下的可见消息块）。 */
+  /** 计算当前会话停留的横线索引（视口内最靠下的可见用户消息）。 */
   const activeIndex = (scroll: HTMLElement): number => {
-    const rows = collectMessageBlocks(scroll)
+    const rows = collectUserMessages(scroll)
     const st = scroll.scrollTop
     const viewBottom = st + (scroll.clientHeight || 1)
     let idx = -1

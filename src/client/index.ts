@@ -10,6 +10,7 @@ import { applyModelReasoningClient } from '../features/model-reasoning/client/in
 import type { ReasoningEditorInjected } from '../features/model-reasoning/client/ReasoningEditor.js'
 import { CliMimicCard, ModelReasoningCard } from '../features/settings/client/ExperienceSettingsCard.js'
 import { applyOpenFolder } from '../features/open-folder/client/index.js'
+import { applyTimelineRail } from '../features/timeline-rail/client/index.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
@@ -33,6 +34,8 @@ const CLI_MIMIC_NS = 'cli-mimic'
 export function apply(ctx: ClientContext): void {
   applyModelReasoningClient(ctx)
   applyOpenFolder(ctx, ctx.workspaces)
+  // 对话页左侧「消息时间轴标记条」：纯 DOM 浮层，只依赖官方滚动容器与消息行。
+  applyTimelineRail(ctx)
 
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   const t = ctx.locale.bind('model-reasoning')

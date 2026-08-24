@@ -1,14 +1,15 @@
 # dsh-experience-plugin
 
-DSH（DeepSeek Harness）功能插件，按功能模块组织，共三个模块：
+DSH（DeepSeek Harness）功能插件，按功能模块组织，共四个模块：
 
 | 模块 | 功能 | 配置入口 |
 |------|------|----------|
 | 模型思考等级 | 为自定义 API 模型注入推理等级（reasoning effort） | 插件行 `modelReasoning` 段 + 官方插件配置页卡片 |
 | CLI 请求模拟 | 把 DSH 模型请求伪装成 Codex / Claude Code / Grok CLI | `cli-mimic` settings 命名空间 + 官方插件配置页卡片 |
 | 打开文件夹 | 工作区行三点菜单「打开文件夹」，用系统文件管理器打开项目目录 | 插件行 `openFolder` 段（默认开启） |
+| 消息时间轴 | 对话页左侧短横线标记每条用户消息，hover 预览、点击跳转 | 无需配置（随插件自动启用） |
 
-前两个模块的配置在官方插件配置页各占一个可收缩卡片，第三个模块在侧边栏工作区行的三点（⋯）菜单中提供入口。
+前两个模块的配置在官方插件配置页各占一个可收缩卡片，第三个模块在侧边栏工作区行的三点（⋯）菜单中提供入口，第四个模块在对话内容区左侧提供消息时间轴。
 
 ---
 
@@ -96,6 +97,18 @@ cli-mimic:
       enabled: true
 ```
 
+### 模块四：消息时间轴（timeline-rail）
+
+在对话内容区左侧新增一条竖向消息时间轴，复刻 codex / zcode 桌面端交互：每条短横线代表一条你发送的消息，位置与对应消息在对话中的纵向位置对齐。
+
+**功能特性**
+
+- 对话区左侧竖向窄轨，每条短横线 = 一条用户消息，位置与消息逐像素对齐
+- hover 短横线：变长加深并弹出预览（该消息 + 助手回复片段）
+- 点击短横线：平滑滚动到对应消息位置
+- 随消息流实时刷新，纯 DOM 浮层，不侵入官方布局
+- 无需配置（随插件自动启用）
+
 ---
 
 ## 安装
@@ -128,6 +141,7 @@ pnpm build
 - `src/features/model-reasoning/`：模块一，模型思考等级（host 逻辑 + 配置编辑器 client）
 - `src/features/cli-mimic/`：模块二，CLI 请求模拟（host 代理 + client 编辑器 + 预设）
 - `src/features/open-folder/`：模块三，打开文件夹（host 调系统文件管理器 + client 菜单注入）
+- `src/features/timeline-rail/`：模块四，消息时间轴（client 短横线标记 + hover 预览 + 点击跳转）
 - `src/features/settings/`：官方插件配置页统一卡片（承载模块一 / 模块二的配置 UI）
 - `scripts/`：验证脚本
 

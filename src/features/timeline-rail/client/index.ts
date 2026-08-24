@@ -26,8 +26,8 @@ const ITEM_CLASS = 'dsh-timeline-item'
 const TIP_CLASS = 'dsh-timeline-tip'
 const CSS_TAG = 'dsh-experience/timeline-rail.css'
 
-/** 轨道宽度（容纳右侧加长 + 右移 10px）。 */
-const RAIL_W = 40
+/** 轨道宽度（容纳右侧 3 倍加长 + 右移 10px）。 */
+const RAIL_W = 56
 /** 正常短横线长度（2 倍）。 */
 const TICK_LEN = 12
 /** 横线左侧固定点（相对轨道左缘，= 原左缘 6px + 右移 10px）。 */
@@ -61,7 +61,8 @@ function injectCss(): void {
     'background:transparent;',
     'cursor:pointer;pointer-events:auto;padding:0;border:none;',
     '}',
-    /* 视觉横线（左锚定，向右加长；整条相对轨道右移 10px） */
+    /* 视觉横线（左锚定，向右加长；整条相对轨道右移 10px）。
+       width/height 不加 transition：hover 时立即变长，避免动画推进依赖。 */
     `.${ITEM_CLASS}::before{`,
     'content:"";position:absolute;top:50%;',
     `left:${TICK_LEFT}px;`,
@@ -69,26 +70,26 @@ function injectCss(): void {
     'transform:translateY(-50%);',
     'border-radius:1.5px;',
     'background:var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.35));',
-    'transition:width .12s ease,height .12s ease,background .12s ease,box-shadow .12s ease;',
+    'transition:background .12s ease,box-shadow .12s ease;',
     '}',
     /* 当前会话停留的高亮（非 hover 时加深） */
     `.${ITEM_CLASS}[data-active="true"]::before{`,
     'background:var(--dsw-alias-state-info-primary,rgba(78,161,255,.75));',
     '}',
-    /* hover：选中横线 —— 2 倍加长 + 加深加粗 */
+    /* hover：选中横线 —— 3 倍加长 + 加深加粗 */
     `.${ITEM_CLASS}.dsh-timeline-hover-self::before{`,
-    `width:${TICK_LEN * 2}px;`,
+    `width:${TICK_LEN * 3}px;`,
     'height:3px;',
     'background:var(--dsw-alias-state-info-primary,#4ea1ff);',
     'box-shadow:0 0 5px rgba(78,161,255,.65);',
     '}',
-    /* hover：上下相邻 —— 1.5 倍，样式不变 */
+    /* hover：上下相邻 —— 2 倍，样式不变 */
     `.${ITEM_CLASS}.dsh-timeline-hover-1::before{`,
-    `width:${Math.round(TICK_LEN * 1.5)}px;`,
+    `width:${TICK_LEN * 2}px;`,
     '}',
-    /* hover：上下第二个 —— 1.25 倍，样式不变 */
+    /* hover：上下第二个 —— 1.5 倍，样式不变 */
     `.${ITEM_CLASS}.dsh-timeline-hover-2::before{`,
-    `width:${Math.round(TICK_LEN * 1.25)}px;`,
+    `width:${Math.round(TICK_LEN * 1.5)}px;`,
     '}',
     /* 预览卡片（白色圆角，复刻 codex 样式） */
     `.${TIP_CLASS}{`,

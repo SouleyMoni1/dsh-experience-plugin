@@ -10,13 +10,15 @@ import { applyModelReasoningClient } from '../features/model-reasoning/client/in
 import type { ReasoningEditorInjected } from '../features/model-reasoning/client/ReasoningEditor.js'
 import { CliMimicCard, ModelReasoningCard } from '../features/settings/client/ExperienceSettingsCard.js'
 import { applyOpenFolder } from '../features/open-folder/client/index.js'
+import { applySessionNav, type SessionNavService } from '../features/session-nav/client/index.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
  * slots：注册 UI slot（插件配置页）；locale：双语文案；connection：wire API；
- * remote：接收 host 推送的失效事件；workspaces：侧边栏「打开文件夹」入口。
+ * remote：接收 host 推送的失效事件；workspaces：侧边栏「打开文件夹」入口；
+ * sessions：会话快捷导航条（读列表 + 切换会话）。
  */
-export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'workspaces']
+export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'workspaces', 'sessions']
 
 /** 插件名（client 运行时诊断用）。 */
 export const name = 'dsh-experience-plugin-client'
@@ -33,6 +35,10 @@ const CLI_MIMIC_NS = 'cli-mimic'
 export function apply(ctx: ClientContext): void {
   applyModelReasoningClient(ctx)
   applyOpenFolder(ctx, ctx.workspaces)
+  // ctx.sessions 在运行时是 client 侧 SessionRuntime（list 快照 + open 切换）；
+  // 类型上被 host 侧 dsh-session 的声明合并覆盖成 SessionStore，窄化后传给
+  // 导航条模块（模块只用到 list 快照 + open，两边结构一致）。
+  applySessionNav(ctx, ctx.sessions as unknown as SessionNavService)
 
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   const t = ctx.locale.bind('model-reasoning')

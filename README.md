@@ -1,14 +1,15 @@
 # dsh-experience-plugin
 
-DSH（DeepSeek Harness）功能插件，按功能模块组织，共三个模块：
+DSH（DeepSeek Harness）功能插件，按功能模块组织，共四个模块：
 
 | 模块 | 功能 | 配置入口 |
 |------|------|----------|
 | 模型思考等级 | 为自定义 API 模型注入推理等级（reasoning effort） | 插件行 `modelReasoning` 段 + 官方插件配置页卡片 |
 | CLI 请求模拟 | 把 DSH 模型请求伪装成 Codex / Claude Code / Grok CLI | `cli-mimic` settings 命名空间 + 官方插件配置页卡片 |
 | 打开文件夹 | 工作区行三点菜单「打开文件夹」，用系统文件管理器打开项目目录 | 插件行 `openFolder` 段（默认开启） |
+| 会话快捷导航条 | 页面最左侧竖向窄条，列出最近会话，点击快速切换，当前会话高亮 | 无需配置（随插件自动启用） |
 
-前两个模块的配置在官方插件配置页各占一个可收缩卡片，第三个模块在侧边栏工作区行的三点（⋯）菜单中提供入口。
+前两个模块的配置在官方插件配置页各占一个可收缩卡片，第三个模块在侧边栏工作区行的三点（⋯）菜单中提供入口，第四个模块在会话页面最左侧提供快捷切换。
 
 ---
 
@@ -96,6 +97,18 @@ cli-mimic:
       enabled: true
 ```
 
+### 模块四：会话快捷导航条（session-nav）
+
+在会话页面最左侧新增一条竖向快捷导航条，复刻 zcode / codex 桌面端的交互：列出最近若干个会话（默认 12 个，按更新时间取），点击图标即可快速切换到对应会话，当前会话高亮并带小圆点标记。
+
+**功能特性**
+
+- 页面最左侧 48px 竖向窄条，不挤占官方侧边栏
+- 列出最近 12 个会话（图标 + hover tooltip 显示标题）
+- 点击图标快速切换会话，当前会话高亮
+- 运行中的会话右下角显示绿色小点
+- 随会话列表实时刷新，无需配置
+
 ---
 
 ## 安装
@@ -128,6 +141,7 @@ pnpm build
 - `src/features/model-reasoning/`：模块一，模型思考等级（host 逻辑 + 配置编辑器 client）
 - `src/features/cli-mimic/`：模块二，CLI 请求模拟（host 代理 + client 编辑器 + 预设）
 - `src/features/open-folder/`：模块三，打开文件夹（host 调系统文件管理器 + client 菜单注入）
+- `src/features/session-nav/`：模块四，会话快捷导航条（client 窄条注入 + 会话切换）
 - `src/features/settings/`：官方插件配置页统一卡片（承载模块一 / 模块二的配置 UI）
 - `scripts/`：验证脚本
 

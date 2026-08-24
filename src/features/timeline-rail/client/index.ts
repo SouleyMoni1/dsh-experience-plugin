@@ -164,6 +164,8 @@ export function applyTimelineRail(ctx: ClientContext): void {
   let scrollEl: HTMLElement | null = null
   let tipEl: HTMLElement | null = null
   let raf = 0
+  /** 当前 hover 的横线索引（-1 = 未 hover）。hover 期间不显示 active 高亮。 */
+  let hoverIdx = -1
 
   /** 当前数据缓存（供 hover/active 计算）。 */
   let ticksCache: Array<{ row: HTMLElement; top: number; question: string; reply: string }> = []
@@ -201,9 +203,21 @@ export function applyTimelineRail(ctx: ClientContext): void {
     return { rail: el, scroll }
   }
 
+  /** 通用识别所有用户消息行：优先 .gdEzaW_userRow（最精确），否则用 flowItem 结构判定兜底。 */
+  const collectUserRows = (scroll: HTMLElement): HTMLElement[] => {
+    const direct = Array.from(scroll.querySelectorAll<HTMLElement>('.gdEzaW_userRow'))
+    if (direct.length > 0) return direct
+    // 兜底：flowItem 里含用户气泡且不含 markdown 的即用户消息
+    return Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem')).filter((f) => {
+      const hasBubble = f.querySelector('.gdEzaW_bubble, [class*="bubble"]') !== null
+      const hasMarkdown = f.querySelector('._markdown_1nba0_5, [class*="markdown"]') !== null
+      return hasBubble && !hasMarkdown
+    })
+  }
+
   /** 收集所有用户消息行信息（按顺序，聚合排列）。 */
   const collectTicks = (scroll: HTMLElement, trackH: number): Array<{ row: HTMLElement; top: number; question: string; reply: string }> => {
-    const rows = Array.from(scroll.querySelectorAll<HTMLElement>('.gdEzaW_userRow'))
+    const rows = collectUserRows(scroll)
     const n = rows.length
     if (n === 0) return []
     // 聚合：固定间距排成一组，整组上下居中
@@ -219,7 +233,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
 
   /** 计算当前会话停留的横线索引（视口内最靠下的可见用户消息）。 */
   const activeIndex = (scroll: HTMLElement): number => {
-    const rows = Array.from(scroll.querySelectorAll<HTMLElement>('.gdEzaW_userRow'))
+    const rows = collectUserRows(scroll)
     const st = scroll.scrollTop
     const viewBottom = st + (scroll.clientHeight || 1)
     let idx = -1
@@ -262,8 +276,8 @@ export function applyTimelineRail(ctx: ClientContext): void {
       } else {
         el.dataset.idx = String(i)
       }
-      // 当前会话高亮（非 hover 时）
-      el.dataset.active = String(i === activeIdx)
+      // 当前会话高亮（仅非 hover 时）
+      el.dataset.active = String(hoverIdx === -1 && i === activeIdx)
       el.setAttribute('aria-label', tick.question)
       el.title = tick.question
       keep.add(el)
@@ -274,8 +288,9 @@ export function applyTimelineRail(ctx: ClientContext): void {
     }
   }
 
-  /** hover 进入：级联加长（2 / 1.75 / 1.4 倍），弹出预览卡片，清除 active 高亮。 */
+  /** hover 进入：级联加长（3 / 2 / 1.5 倍），弹出预览卡片，隐藏 active 高亮。 */
   const onHover = (anchor: HTMLButtonElement, idx: number): void => {
+    hoverIdx = idx
     const track = railEl?.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
     if (!track) return
     const items = Array.from(track.querySelectorAll<HTMLElement>(`.${ITEM_CLASS}`))
@@ -296,6 +311,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
 
   /** hover 离开：移除级联 class，隐藏预览卡片，恢复当前会话高亮。 */
   const onLeave = (): void => {
+    hoverIdx = -1
     hideTip()
     const track = railEl?.querySelector<HTMLElement>(`.${TRACK_CLASS}`)
     if (!track) return
@@ -379,6 +395,7 @@ export function applyTimelineRail(ctx: ClientContext): void {
       hostEl = null
       scrollEl = null
       ticksCache = []
+      hoverIdx = -1
     }
   }, 'timeline-rail: message timeline marks')
 }

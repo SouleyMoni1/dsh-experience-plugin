@@ -9,13 +9,14 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings-plugins/client'
 import { applyModelReasoningClient } from '../features/model-reasoning/client/index.js'
 import type { ReasoningEditorInjected } from '../features/model-reasoning/client/ReasoningEditor.js'
 import { CliMimicCard, ModelReasoningCard } from '../features/settings/client/ExperienceSettingsCard.js'
+import { applyOpenFolder } from '../features/open-folder/client/index.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
  * slots：注册 UI slot（插件配置页）；locale：双语文案；connection：wire API；
- * remote：接收 host 推送的失效事件。
+ * remote：接收 host 推送的失效事件；workspaces：侧边栏「打开文件夹」入口。
  */
-export const inject: string[] = ['slots', 'locale', 'connection', 'remote']
+export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'workspaces']
 
 /** 插件名（client 运行时诊断用）。 */
 export const name = 'dsh-experience-plugin-client'
@@ -31,6 +32,7 @@ const CLI_MIMIC_NS = 'cli-mimic'
  */
 export function apply(ctx: ClientContext): void {
   applyModelReasoningClient(ctx)
+  applyOpenFolder(ctx, ctx.workspaces)
 
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   const t = ctx.locale.bind('model-reasoning')

@@ -9,6 +9,7 @@ DSH（DeepSeek Harness）功能插件：合并模型思考等级与 CLI 请求�
 - 支持自定义系列预设、协议级覆盖、按系列刷新
 - CLI 请求模拟：本地 HTTP 代理 + 全局 fetch 拦截，把 DSH 模型请求伪装成 Codex / Claude Code / Grok CLI
 - 官方插件配置页两个可收缩模块：`模型思考等级` / `CLI 请求模拟`
+- 侧边栏项目行「在文件夹中显示」按钮：用系统文件管理器打开该项目的目录（Windows `Invoke-Item` / macOS `open` / Linux `xdg-open`）
 
 ## 安装
 
@@ -78,6 +79,7 @@ cli-mimic:
 - `src/features/model-reasoning/`：模型思考等级功能
 - `src/features/cli-mimic/`：CLI 请求模拟功能
 - `src/features/settings/`：官方插件配置页统一卡片
+- `src/features/open-folder/`：侧边栏项目行「在文件夹中显示」按钮
 - `scripts/`：验证脚本
 
 ## License

@@ -27,6 +27,10 @@ const ARROW_CLASS = 'dsh-msg-collapse-arrow'
 const COLLAPSED_CLASS = 'dsh-msg-collapse-collapsed'
 /** 工作过程标记 class。 */
 const WORK_CLASS = 'dsh-msg-collapse-work'
+/** 淡出动画中的标记 class（opacity 0）。 */
+const FADING_CLASS = 'dsh-msg-collapse-fading'
+/** 淡入淡出动画时长 ms。 */
+const FADE_MS = 160
 /** 样式标签 key。 */
 const CSS_TAG = 'dsh-experience/msg-collapse.css'
 
@@ -64,6 +68,9 @@ function injectCss(): void {
     '}',
     /* 折叠后箭头朝右 */
     `.${COLLAPSED_CLASS} .${ARROW_CLASS}{transform:rotate(90deg);}`,
+    /* 折叠/展开过渡：工作节点淡入淡出 */
+    `.${WORK_CLASS}{transition:opacity ${FADE_MS}ms ease;}`,
+    `.${WORK_CLASS}.${FADING_CLASS}{opacity:0;}`,
   ].join('\n')
   document.head.appendChild(tag)
 }
@@ -149,6 +156,7 @@ interface BarState {
   work: HTMLElement[]
   placeMap: Map<HTMLElement, { parent: HTMLElement | null; next: Element | null }>
   collapsed: boolean
+  animating: boolean
   base: string
   label: HTMLElement
   finalReply: HTMLElement | null
@@ -212,6 +220,7 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
     work,
     placeMap: new Map(),
     collapsed: !isLastRound,
+    animating: false,
     base,
     label,
     finalReply,
@@ -219,20 +228,53 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   }
   ;(bar as unknown as { __state: BarState }).__state = state
 
-  const apply = () => {
+  const apply = (animate: boolean) => {
+    // 折叠/展开过渡中（160ms）锁住，防连点导致节点透明卡死
+    if (state.animating) return
     if (state.collapsed) {
       // 折叠：正序把对话区节点移入隐藏仓库（记录原位；移走时 next 兄弟还在 DOM，引用准确）
-      for (const w of state.work) {
+      const toHide = state.work.filter((w) => {
         w.classList.add(WORK_CLASS)
-        const inScroll = w.closest('.wSkVaW_scrollBody') !== null
-        if (!inScroll) continue // 已在仓库
+        return w.closest('.wSkVaW_scrollBody') !== null
+      })
+      if (toHide.length === 0) {
+        // 全在仓库，无动画可做
+        bar.classList.toggle(COLLAPSED_CLASS, true)
+        label.textContent = `${base} · 展开`
+        return
+      }
+      // 记录原位
+      for (const w of toHide) {
         state.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
-        getVault().appendChild(w)
+      }
+      const doMove = (): void => {
+        state.animating = false
+        for (const w of toHide) {
+          w.classList.remove(FADING_CLASS)
+          getVault().appendChild(w)
+        }
+        bar.classList.add(COLLAPSED_CLASS)
+        label.textContent = `${base} · 展开`
+        // 隐藏最终回复 Think 标题
+        if (state.finalReply !== null) {
+          const qw = state.finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
+          if (qw !== null) qw.style.display = 'none'
+        }
+      }
+      if (animate) {
+        state.animating = true
+        toHide.forEach((w) => w.classList.add(FADING_CLASS))
+        // 强制 reflow：确保 opacity 过渡立即开始（否则浏览器可能批处理延迟）
+        void toHide[0].offsetHeight
+        window.setTimeout(doMove, FADE_MS)
+      } else {
+        doMove()
       }
     } else {
       // 展开：必须**倒序**恢复——后面的兄弟先就位，前面的节点才能用
       // insertBefore 精确插到它前面。正序会因 next 还在仓库而 appendChild
       // 兜底，导致节点被追加到父容器末尾（跑到回复结果下方）的 bug。
+      const toShow: HTMLElement[] = []
       for (let i = state.work.length - 1; i >= 0; i--) {
         const w = state.work[i]
         w.classList.add(WORK_CLASS)
@@ -250,24 +292,36 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
         } else {
           getVault().appendChild(w)
         }
+        toShow.push(w)
+      }
+      // 显示最终回复 Think 标题
+      if (state.finalReply !== null) {
+        const qw = state.finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
+        if (qw !== null) qw.style.display = ''
+      }
+      bar.classList.remove(COLLAPSED_CLASS)
+      label.textContent = base
+      if (animate && toShow.length > 0) {
+        // 先设透明插回，下一帧淡入
+        state.animating = true
+        toShow.forEach((w) => w.classList.add(FADING_CLASS))
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            state.animating = false
+            toShow.forEach((w) => w.classList.remove(FADING_CLASS))
+          })
+        })
       }
     }
-    // 最终回复块：折叠时隐藏其 Think 标题，只留干净正文
-    if (state.finalReply !== null) {
-      const qw = state.finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
-      if (qw !== null) qw.style.display = state.collapsed ? 'none' : ''
-    }
-    bar.classList.toggle(COLLAPSED_CLASS, state.collapsed)
-    label.textContent = state.collapsed ? `${base} · 展开` : base
   }
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
     state.collapsed = !state.collapsed
-    apply()
+    apply(true)
   })
-  // 初始标记 + 应用默认状态
-  apply()
+  // 初始标记 + 应用默认状态（初始不动画，避免页面打开时闪烁）
+  apply(false)
 }
 
 /** 记录上次扫描时「末尾用户消息」的唯一标记：检测新回合（发送新消息）→ 自动折叠上一轮。

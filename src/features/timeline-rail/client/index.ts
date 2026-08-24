@@ -26,10 +26,12 @@ const ITEM_CLASS = 'dsh-timeline-item'
 const TIP_CLASS = 'dsh-timeline-tip'
 const CSS_TAG = 'dsh-experience/timeline-rail.css'
 
-/** 轨道宽度。 */
-const RAIL_W = 24
+/** 轨道宽度（容纳右侧加长 + 右移 10px）。 */
+const RAIL_W = 40
 /** 正常短横线长度（2 倍）。 */
 const TICK_LEN = 12
+/** 横线左侧固定点（相对轨道左缘，= 原左缘 6px + 右移 10px）。 */
+const TICK_LEFT = 16
 /** 横线之间的固定间距（+2px）。 */
 const TICK_GAP = 12
 /** 点击滚动时的顶部留白（px）。 */
@@ -59,11 +61,12 @@ function injectCss(): void {
     'background:transparent;',
     'cursor:pointer;pointer-events:auto;padding:0;border:none;',
     '}',
-    /* 视觉横线（居中，默认 12px） */
+    /* 视觉横线（左锚定，向右加长；整条相对轨道右移 10px） */
     `.${ITEM_CLASS}::before{`,
-    'content:"";position:absolute;left:50%;top:50%;',
+    'content:"";position:absolute;top:50%;',
+    `left:${TICK_LEFT}px;`,
     `width:${TICK_LEN}px;height:2px;`,
-    'transform:translate(-50%,-50%);',
+    'transform:translateY(-50%);',
     'border-radius:1.5px;',
     'background:var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.35));',
     'transition:width .12s ease,height .12s ease,background .12s ease,box-shadow .12s ease;',

@@ -78,6 +78,18 @@ function isWorkItem(el: HTMLElement): boolean {
   return false
 }
 
+/** 隐藏仓库：折叠的工作过程节点移到这里（display:none，页面零渲染/零布局）。 */
+let vaultEl: HTMLElement | null = null
+function getVault(): HTMLElement {
+  if (vaultEl !== null && vaultEl.isConnected) return vaultEl
+  const el = document.createElement('div')
+  el.style.display = 'none'
+  el.style.contain = 'strict'
+  document.body.appendChild(el)
+  vaultEl = el
+  return el
+}
+
 /** 收集一个回合里所有处理过程 flowItem（不含用户消息、不含最终回复、不含状态行）。 */
 function collectWorkItems(start: number, end: number, items: HTMLElement[]): HTMLElement[] {
   const out: HTMLElement[] = []
@@ -132,12 +144,32 @@ function extractDuration(start: number, end: number, items: HTMLElement[]): stri
   return null
 }
 
+/** 每个 bar 的运行时状态（挂元素上，防扫描重建丢失）。 */
+interface BarState {
+  work: HTMLElement[]
+  placeMap: Map<HTMLElement, { parent: HTMLElement | null; next: Element | null }>
+  collapsed: boolean
+  base: string
+  label: HTMLElement
+  finalReply: HTMLElement | null
+  bar: HTMLElement
+}
+
 /** 给一个回合注入折叠横条（插在第一个处理过程上方）。 */
 function setupRound(start: number, end: number, items: HTMLElement[]): void {
   const firstWork = findFirstWork(start, end, items)
   if (firstWork === null) return // 没有处理过程，跳过
-  // 已注入检查：紧邻前一个兄弟是横条才跳过（不能查整个父容器——所有 flowItem 同父）
-  if (firstWork.previousElementSibling !== null && firstWork.previousElementSibling.classList.contains(BAR_CLASS)) return
+  // 已注入检查：紧邻前一个兄弟是横条（同一回合的 bar 已在）
+  const prevEl = firstWork.previousElementSibling
+  const existingBar = prevEl !== null && prevEl.classList.contains(BAR_CLASS)
+    ? prevEl as HTMLElement
+    : null
+  if (existingBar !== null && (existingBar as unknown as { __state?: BarState }).__state !== undefined) {
+    // bar 已存在：仅同步文案（work 节点可能在 vault，不重建）
+    const st = (existingBar as unknown as { __state: BarState }).__state
+    st.label.textContent = st.collapsed ? `${st.base} · 展开` : st.base
+    return
+  }
 
   const work = collectWorkItems(start, end, items)
   const finalReply = findFinalReply(start, end, items)
@@ -176,24 +208,54 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
     return start === lastStart
   })()
 
-  let collapsed = !isLastRound // 历史回合默认折叠
+  const state: BarState = {
+    work,
+    placeMap: new Map(),
+    collapsed: !isLastRound,
+    base,
+    label,
+    finalReply,
+    bar,
+  }
+  ;(bar as unknown as { __state: BarState }).__state = state
+
   const apply = () => {
-    for (const w of work) {
-      w.classList.toggle(WORK_CLASS, true)
-      w.style.display = collapsed ? 'none' : ''
+    for (const w of state.work) {
+      w.classList.add(WORK_CLASS)
+      // 判断节点是否在对话区（vault 也在 body 下 isConnected=true，必须用 closest 区分）
+      const inScroll = w.closest('.wSkVaW_scrollBody') !== null
+      if (state.collapsed && inScroll) {
+        // 记录原位，移入隐藏仓库（display:none，不参与布局/渲染/重排）
+        state.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
+        getVault().appendChild(w)
+      } else if (!state.collapsed && !inScroll) {
+        // 插回原位置。注意：next 兄弟可能也被折叠进了 vault（isConnected=true 但不在原父下），
+        // 必须确认 next 真的还在原父容器下，否则 insertBefore 会抛 NotFoundError。
+        const p = state.placeMap.get(w)
+        if (p !== undefined && p.parent !== null && p.parent.isConnected) {
+          const nextOk = p.next !== null && p.next.parentElement === p.parent
+          if (nextOk) {
+            p.parent.insertBefore(w, p.next as Element)
+          } else {
+            p.parent.appendChild(w)
+          }
+        } else {
+          getVault().appendChild(w)
+        }
+      }
     }
     // 最终回复块：折叠时隐藏其 Think 标题，只留干净正文
-    if (finalReply !== null) {
-      const qw = finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
-      if (qw !== null) qw.style.display = collapsed ? 'none' : ''
+    if (state.finalReply !== null) {
+      const qw = state.finalReply.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
+      if (qw !== null) qw.style.display = state.collapsed ? 'none' : ''
     }
-    bar.classList.toggle(COLLAPSED_CLASS, collapsed)
-    label.textContent = collapsed ? `${base} · 展开` : base
+    bar.classList.toggle(COLLAPSED_CLASS, state.collapsed)
+    label.textContent = state.collapsed ? `${base} · 展开` : base
   }
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
-    collapsed = !collapsed
+    state.collapsed = !state.collapsed
     apply()
   })
   // 初始标记 + 应用默认状态

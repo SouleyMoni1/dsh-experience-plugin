@@ -11,6 +11,7 @@ import type { ReasoningEditorInjected } from '../features/model-reasoning/client
 import { CliMimicCard, ModelReasoningCard } from '../features/settings/client/ExperienceSettingsCard.js'
 import { applyOpenFolder } from '../features/open-folder/client/index.js'
 import { applyTimelineRail } from '../features/timeline-rail/client/index.js'
+import { applyMsgCollapse } from '../features/msg-collapse/client/index.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
@@ -36,6 +37,8 @@ export function apply(ctx: ClientContext): void {
   applyOpenFolder(ctx, ctx.workspaces)
   // 对话页左侧「消息时间轴标记条」：纯 DOM 浮层，只依赖官方滚动容器与消息行。
   applyTimelineRail(ctx)
+  // 会话消息回合折叠：用户消息 + AI 工作过程可收起，只留 AI 最终回复。
+  applyMsgCollapse(ctx)
 
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   const t = ctx.locale.bind('model-reasoning')

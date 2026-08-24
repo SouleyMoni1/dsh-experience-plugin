@@ -220,6 +220,57 @@ function applyCollapse(): void {
   }
 }
 
+/** 官方「加载更早」按钮：.Md3f7G_older 容器内的 button；无则 null。 */
+function findOlderButton(scroll: HTMLElement): HTMLButtonElement | null {
+  const older = scroll.querySelector<HTMLElement>('.Md3f7G_older')
+  if (older === null) return null
+  return older.querySelector<HTMLButtonElement>('button')
+}
+
+/** 自动把历史会话全部加载出来：反复点「加载更早」直到按钮消失。
+ *  带次数上限防死循环；每轮等待 scrollHeight 变化后再点下一次。 */
+let loadAllRunning = false
+function loadAllHistory(): void {
+  const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+  if (scroll === null) return
+  // 防止并发触发
+  if (loadAllRunning) return
+  loadAllRunning = true
+
+  const MAX_TRIES = 60 // 单次会话加载上限（防异常死循环）
+  let tries = 0
+  const step = (): void => {
+    if (tries >= MAX_TRIES) {
+      loadAllRunning = false
+      applyCollapse()
+      return
+    }
+    const btn = findOlderButton(scroll)
+    if (btn === null) {
+      // 全部加载完成
+      loadAllRunning = false
+      applyCollapse()
+      return
+    }
+    const beforeH = scroll.scrollHeight
+    tries++
+    btn.click()
+    // 等内容插入（scrollHeight 变化），再继续
+    let poll = 0
+    const check = (): void => {
+      poll++
+      if (scroll.scrollHeight !== beforeH || poll > 30) {
+        // 内容已插入，等渲染稳定再点下一次
+        window.setTimeout(step, 150)
+        return
+      }
+      window.setTimeout(check, 120)
+    }
+    window.setTimeout(check, 120)
+  }
+  window.setTimeout(step, 100)
+}
+
 /**
  * 浏览器侧入口。
  * @param ctx - client 上下文。
@@ -228,13 +279,20 @@ export function applyMsgCollapse(ctx: ClientContext): void {
   ctx.effect(() => {
     injectCss()
     applyCollapse()
-    // 会话切换 / 消息新增：防抖扫描
+    // 自动把历史会话全部加载出来（点「加载更早」直到按钮消失），加载后重新扫描
+    loadAllHistory()
+    // 会话切换 / 消息新增：防抖扫描 + 自动补载历史
     let timer = 0
     const observer = new MutationObserver(() => {
       if (timer !== 0) return
       timer = window.setTimeout(() => {
         timer = 0
         applyCollapse()
+        // 有「加载更早」按钮 → 自动继续加载历史（直到全部加载完）
+        const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+        if (scroll !== null && findOlderButton(scroll) !== null) {
+          loadAllHistory()
+        }
       }, 300)
     })
     observer.observe(document.documentElement, { childList: true, subtree: true })

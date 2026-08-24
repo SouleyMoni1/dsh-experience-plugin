@@ -322,8 +322,8 @@ function findOlderButton(scroll: HTMLElement): HTMLButtonElement | null {
   return older.querySelector<HTMLButtonElement>('button')
 }
 
-/** 自动加载历史到最多 30 条用户消息：反复点「加载更早」直到达到上限或按钮消失。
- *  达到 30 条后**保留**原版「加载更早」按钮，由用户手动点继续加载。
+/** 自动加载历史到最多 20 条用户消息：反复点「加载更早」直到达到上限或按钮消失。
+ *  达到 20 条后**保留**原版「加载更早」按钮，由用户手动点继续加载。
  *
  *  **性能策略（温和单点）**：实测 DSH 从零加载历史时每次「加载更早」只插 ~2 条、
  *  响应 ~1s。**连点会触发 DSH 并发请求风暴，把渲染挤爆（首次消息被拖到 6.5s）**；
@@ -332,7 +332,7 @@ function findOlderButton(scroll: HTMLElement): HTMLButtonElement | null {
  *
  *  **会话切换安全**：每轮重新获取 scrollBody——DSH 切会话会重建 scrollBody，
  *  检测到切换立即终止旧加载，由 observer 在新会话上重新触发。 */
-const AUTO_LOAD_USERS = 30
+const AUTO_LOAD_USERS = 20
 /** 加载中标记：存启动时间戳（0=空闲）。比布尔更稳——若旧加载链因切换会话而
  *  卡死，超过 STALE_MS 后新调用可直接接管，不会永久锁死自动加载。 */
 let loadAllRunning = 0
@@ -371,7 +371,7 @@ function loadAllHistory(): void {
       finish()
       return
     }
-    // 达到 30 条上限：停止自动加载，保留原版「加载更早」按钮
+    // 达到 20 条上限：停止自动加载，保留原版「加载更早」按钮
     if (scroll.querySelectorAll('.gdEzaW_userRow').length >= AUTO_LOAD_USERS) {
       finish()
       return
@@ -423,7 +423,7 @@ export function applyMsgCollapse(ctx: ClientContext): void {
         // 切回会话时停顿。加载完成时 loadAllHistory 自己会 applyCollapse。
         if (loadAllRunning) return
         applyCollapse()
-        // 有「加载更早」按钮 → 自动继续加载历史（直到 30 条上限）
+        // 有「加载更早」按钮 → 自动继续加载历史（直到 20 条上限）
         const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
         if (scroll !== null && findOlderButton(scroll) !== null) {
           loadAllHistory()

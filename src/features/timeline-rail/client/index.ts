@@ -75,7 +75,7 @@ function injectCss(): void {
     'cursor:pointer;pointer-events:auto;padding:0;border:none;',
     '}',
     /* 视觉横线（左锚定，向右加长；整条相对轨道右移 10px）。
-       width/height 不加 transition：hover 时立即变长，避免动画推进依赖。 */
+       width/height 加 transition：hover 加长/移出缩短平滑过渡，不生硬。 */
     `.${ITEM_CLASS}::before{`,
     'content:"";position:absolute;top:50%;',
     `left:${TICK_LEFT}px;`,
@@ -83,7 +83,7 @@ function injectCss(): void {
     'transform:translateY(-50%);',
     'border-radius:1.5px;',
     'background:var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.35));',
-    'transition:background .12s ease,box-shadow .12s ease;',
+    'transition:width .18s ease,height .18s ease,background .12s ease,box-shadow .18s ease;',
     '}',
     /* 当前会话停留的高亮（非 hover 时加深） */
     `.${ITEM_CLASS}[data-active="true"]::before{`,

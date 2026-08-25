@@ -16,6 +16,8 @@ import { applyTimelineRail } from '../features/timeline-rail/client/index.js'
 import { applyMsgCollapse } from '../features/msg-collapse/client/index.js'
 import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { OpaqueBgRow } from '../features/settings-page/client/OpaqueBgRow.js'
+import { isModuleEnabled } from '../features/module-toggles/client/index.js'
+import { ModuleTogglesCard } from '../features/module-toggles/client/ModuleTogglesCard.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
@@ -37,14 +39,15 @@ const CLI_MIMIC_NS = 'cli-mimic'
  * @param ctx - 浏览器侧 client 上下文。
  */
 export function apply(ctx: ClientContext): void {
-  applyModelReasoningClient(ctx)
-  applyOpenFolder(ctx, ctx.workspaces)
+  // 各功能模块按「模块开关」独立启停（默认全部开启，与旧行为一致）。
+  if (isModuleEnabled('model-reasoning')) applyModelReasoningClient(ctx)
+  if (isModuleEnabled('open-folder')) applyOpenFolder(ctx, ctx.workspaces)
   // 对话页左侧「消息时间轴标记条」：纯 DOM 浮层，只依赖官方滚动容器与消息行。
-  applyTimelineRail(ctx)
+  if (isModuleEnabled('timeline-rail')) applyTimelineRail(ctx)
   // 会话消息回合折叠：用户消息 + AI 工作过程可收起，只留 AI 最终回复。
-  applyMsgCollapse(ctx)
+  if (isModuleEnabled('msg-collapse')) applyMsgCollapse(ctx)
   // 官方设置弹窗 → 全屏设置页：几何覆盖，不改官方槽架构。
-  applySettingsPage(ctx)
+  if (isModuleEnabled('settings-page')) applySettingsPage(ctx)
 
   const connection = ctx.get('connection') as ConnectionHandle | undefined
   const t = ctx.locale.bind('model-reasoning')
@@ -52,23 +55,39 @@ export function apply(ctx: ClientContext): void {
   const remote = ctx.remote as unknown as ReasoningEditorInjected['remote']
 
   ctx.effect(() => ctx.slots.inject('settings.plugin.item', function* () {
+    if (isModuleEnabled('model-reasoning')) {
+      yield ctx.slots.register({
+        name: 'settings.plugin.item',
+        key: MODEL_REASONING_NS,
+        inject: () => ({ api, rpc: connection?.rpc, remote, t }),
+      }, ModelReasoningCard)
+    }
+    if (isModuleEnabled('cli-mimic')) {
+      yield ctx.slots.register({
+        name: 'settings.plugin.item',
+        key: CLI_MIMIC_NS,
+        inject: () => ({ api }),
+      }, CliMimicCard)
+    }
+    // 模块开关卡片：挂到真实 NS key（dsh-experience-plugin）下，keyed 槽才 dispatch。
+    // 官方 tab 只渲染 Host 真实 serve 的 settings 命名空间；module-toggles 不是
+    // 真实 NS，注册在它下面永远不会被渲染。与 ModelReasoningCard 同 key 时
+    // keyed 槽按 order 排序渲染多个 entry。
     yield ctx.slots.register({
       name: 'settings.plugin.item',
       key: MODEL_REASONING_NS,
-      inject: () => ({ api, rpc: connection?.rpc, remote, t }),
-    }, ModelReasoningCard)
-    yield ctx.slots.register({
-      name: 'settings.plugin.item',
-      key: CLI_MIMIC_NS,
-      inject: () => ({ api }),
-    }, CliMimicCard)
+      priority: -1,
+      inject: () => ({}),
+    }, ModuleTogglesCard)
   }), 'dsh-experience-plugin: plugin config cards')
 
   // 通用设置区一行：设置页背景不透明开关（开启时强制覆盖皮肤/主题的透明效果）。
-  ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register({
-    name: 'settings.general.item',
-    id: 'settings-page-opaque-bg',
-    order: 20,
-  }, OpaqueBgRow)), 'dsh-experience-plugin: settings page opaque bg row')
+  if (isModuleEnabled('settings-page')) {
+    ctx.effect(() => ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+      name: 'settings.general.item',
+      id: 'settings-page-opaque-bg',
+      order: 20,
+    }, OpaqueBgRow)), 'dsh-experience-plugin: settings page opaque bg row')
+  }
 
 }

@@ -1,0 +1,61 @@
+/**
+ * module-toggles —— browser 半区：每个功能模块的独立启停开关。
+ *
+ * 插件目前有 6 个功能模块，其中纯 client 模块（时间轴 / 折叠 / 设置页全屏化）
+ * 随插件自动启用、没有配置开关；host 模块（模型思考等级 / CLI 模拟 / 打开文件夹）
+ * 的 enabled 在插件配置里。本模块在官方插件配置页提供一张「模块开关」卡片，
+ * 列出全部模块，每个一个开关，状态持久化在 localStorage：
+ *  - 关闭某模块 → 该模块的浏览器侧功能不再装配（时间轴不显示、折叠不生效、
+ *    设置页保持弹窗、配置卡片不注册等）；
+ *  - 默认全部开启，与旧行为一致。
+ *
+ * 装配侧（src/client/index.ts）通过 isModuleEnabled(id) 决定是否 apply 各模块。
+ */
+import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+
+/** 模块清单：id 与展示信息（开关卡片用）。 */
+export interface ModuleInfo {
+  id: string
+  label: string
+  description: string
+}
+
+export const MODULES: ModuleInfo[] = [
+  { id: 'model-reasoning', label: '模型思考等级', description: '为自定义 API 模型注入推理等级' },
+  { id: 'cli-mimic', label: 'CLI 请求模拟', description: '把 DSH 模型请求伪装成 CLI 客户端' },
+  { id: 'open-folder', label: '打开文件夹', description: '工作区行菜单打开项目目录' },
+  { id: 'timeline-rail', label: '消息时间轴', description: '对话页左侧消息标记条 + 预览' },
+  { id: 'msg-collapse', label: '消息折叠', description: '工作过程折叠横条，一键收起/展开' },
+  { id: 'settings-page', label: '设置页全屏化', description: '设置弹窗改全屏页 + 背景不透明开关' },
+]
+
+/** localStorage key 前缀。 */
+const KEY_PREFIX = 'dsh-experience:module:'
+
+/** 读取某模块开关（缺省 = 开启，与旧行为一致）。 */
+export function isModuleEnabled(id: string): boolean {
+  if (typeof localStorage === 'undefined') return true
+  const stored = localStorage.getItem(KEY_PREFIX + id)
+  if (stored === null) return true
+  return stored === '1'
+}
+
+/** 写入某模块开关。 */
+export function setModuleEnabled(id: string, on: boolean): void {
+  try {
+    localStorage.setItem(KEY_PREFIX + id, on ? '1' : '0')
+  } catch {
+    // localStorage 不可用时仅本次会话生效，忽略
+  }
+}
+
+/**
+ * 浏览器侧装配「模块开关」。
+ * 目前开关卡片注册在官方插件配置页（settings.plugin.item），由 src/client/index.ts
+ * 统一装配；本函数保留 ctx 参数以符合各模块 apply 签名惯例。
+ * @param ctx - client 根上下文。
+ */
+export function applyModuleToggles(_ctx: ClientContext): void {
+  // 卡片注册在 src/client/index.ts 的 settings.plugin.item 槽里（与配置卡片并列）。
+  // 这里不重复注册，避免重复渲染。
+}

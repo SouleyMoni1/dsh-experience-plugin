@@ -457,7 +457,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
   }
 
   return (
-    <section style={{ maxWidth: 720, display: 'flex', flexDirection: 'column', gap: 12, color: 'var(--dsw-alias-label-primary)' }}>
+    <section style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12, color: 'var(--dsw-alias-label-primary)' }}>
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '24px' }}>{t('title')}</h2>
       <p style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('intro')}</p>
       {!writable && (

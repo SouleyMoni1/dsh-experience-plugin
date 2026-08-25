@@ -3,7 +3,7 @@
  *
  * 插件目前有 6 个功能模块，其中纯 client 模块（时间轴 / 折叠 / 设置页全屏化）
  * 随插件自动启用、没有配置开关；host 模块（模型思考等级 / CLI 模拟 / 打开文件夹）
- * 的 enabled 在插件配置里。本模块在官方插件配置页提供一张「模块开关」卡片，
+ * 的 enabled 在插件配置里。本模块在设置页「日用优化」分区提供「模块开关」页签，
  * 列出全部模块，每个一个开关，状态持久化在 localStorage：
  *  - 关闭某模块 → 该模块的浏览器侧功能不再装配（时间轴不显示、折叠不生效、
  *    设置页保持弹窗、配置卡片不注册等）；
@@ -51,11 +51,11 @@ export function setModuleEnabled(id: string, on: boolean): void {
 
 /**
  * 浏览器侧装配「模块开关」。
- * 目前开关卡片注册在官方插件配置页（settings.plugin.item），由 src/client/index.ts
- * 统一装配；本函数保留 ctx 参数以符合各模块 apply 签名惯例。
+ * 开关列表渲染在设置页「日用优化」分区的「模块开关」页签
+ * （src/features/daily-optimization/client/DailyOptimizationSection.tsx），
+ * 由 src/client/index.ts 统一装配；本函数保留 ctx 参数以符合各模块 apply 签名惯例。
  * @param ctx - client 根上下文。
  */
 export function applyModuleToggles(_ctx: ClientContext): void {
-  // 卡片注册在 src/client/index.ts 的 settings.plugin.item 槽里（与配置卡片并列）。
-  // 这里不重复注册，避免重复渲染。
+  // 列表渲染在日用优化分区，这里不重复注册，避免重复渲染。
 }

@@ -21,7 +21,6 @@ const cardStyle: CSSProperties = {
   border: '1px solid var(--dsw-alias-border-l2)',
   background: 'var(--dsw-alias-bg-layer-3)',
   borderRadius: '12px',
-  listStyle: 'none',
   transition: 'border-color .16s, background .16s',
 }
 
@@ -84,7 +83,7 @@ function ModuleCard({ title, description, defaultOpen = false, children }: Modul
   const [open, setOpen] = useState(defaultOpen)
 
   return (
-    <li style={open ? { ...cardStyle, ...cardOpenStyle } : cardStyle}>
+    <div style={open ? { ...cardStyle, ...cardOpenStyle } : cardStyle}>
       <button
         type="button"
         style={headerStyle}
@@ -100,7 +99,7 @@ function ModuleCard({ title, description, defaultOpen = false, children }: Modul
         </span>
       </button>
       {open ? <div style={bodyStyle}>{children}</div> : null}
-    </li>
+    </div>
   )
 }
 

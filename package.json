@@ -1,6 +1,6 @@
 {
   "name": "dsh-experience-plugin",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "DSH plugin: model reasoning levels plus CLI request mimic, with two collapsible official plugin configuration cards.",
   "type": "module",
   "main": "./lib/index.js",

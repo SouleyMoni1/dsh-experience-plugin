@@ -13,6 +13,7 @@ import { applyModelReasoningClient } from '../features/model-reasoning/client/in
 import { applyOpenFolder } from '../features/open-folder/client/index.js'
 import { applyTimelineRail } from '../features/timeline-rail/client/index.js'
 import { applyMsgCollapse } from '../features/msg-collapse/client/index.js'
+import { applyAutoLoadHistory } from '../features/auto-load-history/client/index.js'
 import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { applyDailyOptimization } from '../features/daily-optimization/client/index.js'
 import { isModuleEnabled } from '../features/module-toggles/client/index.js'
@@ -39,6 +40,8 @@ export function apply(ctx: ClientContext): void {
   if (isModuleEnabled('timeline-rail')) applyTimelineRail(ctx)
   // 会话消息回合折叠：用户消息 + AI 工作过程可收起，只留 AI 最终回复。
   if (isModuleEnabled('msg-collapse')) applyMsgCollapse(ctx)
+  // 自动加载更早的对话历史：独立模块，条数可在设置页「日用优化」分区配置。
+  if (isModuleEnabled('auto-load-history')) applyAutoLoadHistory(ctx)
   // 官方设置弹窗 → 全屏设置页：几何覆盖，不改官方槽架构。
   if (isModuleEnabled('settings-page')) applySettingsPage(ctx)
 

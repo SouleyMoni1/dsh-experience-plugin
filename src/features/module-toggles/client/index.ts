@@ -26,8 +26,26 @@ export const MODULES: ModuleInfo[] = [
   { id: 'open-folder', label: '打开文件夹', description: '工作区行菜单打开项目目录' },
   { id: 'timeline-rail', label: '消息时间轴', description: '对话页左侧消息标记条 + 预览' },
   { id: 'msg-collapse', label: '消息折叠', description: '工作过程折叠横条，一键收起/展开' },
+  { id: 'auto-load-history', label: '自动加载历史', description: '自动加载更早的对话历史' },
   { id: 'settings-page', label: '设置页全屏化', description: '设置弹窗改全屏页 + 背景不透明开关' },
 ]
+
+/**
+ * 按「开启优先、再按清单顺序」排序模块 id 列表。
+ * 设置卡片与模块开关共用此规则，保证两处排序一致；开关变化时父级重渲染即自动刷新顺序。
+ * @param ids - 待排序的模块 id 列表。
+ * @param states - 各模块开关状态（id → 是否开启）。
+ * @returns 排序后的 id 列表。
+ */
+export function sortModuleIds(ids: string[], states: Record<string, boolean>): string[] {
+  const order = new Map(MODULES.map((m, i) => [m.id, i]))
+  return [...ids].sort((a, b) => {
+    const aOn = states[a] ?? true
+    const bOn = states[b] ?? true
+    if (aOn !== bOn) return aOn ? -1 : 1
+    return (order.get(a) ?? 0) - (order.get(b) ?? 0)
+  })
+}
 
 /** localStorage key 前缀。 */
 const KEY_PREFIX = 'dsh-experience:module:'

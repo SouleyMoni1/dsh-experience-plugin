@@ -11,6 +11,7 @@
 import { useState } from 'react'
 import type { CSSProperties } from 'react'
 import { applyOpaqueBg, OPAQUE_BG_KEY, readStoredOpaqueBg } from './index.js'
+import { ModuleCard } from '../../settings/client/ExperienceSettingsCard.js'
 
 const rowStyle: CSSProperties = {
   borderBottom: '1px solid var(--dsw-alias-border-l2)',
@@ -73,7 +74,7 @@ function thumbStyle(on: boolean): CSSProperties {
 }
 
 /** 通用设置区一行：开关 + 说明。 */
-export function OpaqueBgRow(): any {
+export function OpaqueBgRow({ disabled = false }: { disabled?: boolean }): any {
   const [on, setOn] = useState(readStoredOpaqueBg())
 
   const toggle = (): void => {
@@ -89,21 +90,23 @@ export function OpaqueBgRow(): any {
   }
 
   return (
-    <div style={rowStyle}>
-      <div style={textStyle}>
-        <div style={titleStyle}>设置页背景不透明</div>
-        <div style={descStyle}>开启后强制覆盖皮肤/主题的透明效果</div>
+    <ModuleCard title="设置页背景不透明" description="开启后强制覆盖皮肤/主题的透明效果" disabled={disabled}>
+      <div style={rowStyle}>
+        <div style={textStyle}>
+          <div style={titleStyle}>设置页背景不透明</div>
+          <div style={descStyle}>开启后强制覆盖皮肤/主题的透明效果</div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          aria-label="设置页背景不透明"
+          style={switchStyle(on)}
+          onClick={toggle}
+        >
+          <span style={thumbStyle(on)} />
+        </button>
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        aria-label="设置页背景不透明"
-        style={switchStyle(on)}
-        onClick={toggle}
-      >
-        <span style={thumbStyle(on)} />
-      </button>
-    </div>
+    </ModuleCard>
   )
 }

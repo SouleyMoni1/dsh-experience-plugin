@@ -4,3 +4,5 @@ lib/
 .e2e-home/
 .e2e-migrate-home/
 *.tgz
+
+.zcode/

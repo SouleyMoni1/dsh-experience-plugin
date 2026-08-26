@@ -14,6 +14,8 @@ interface ModuleCardProps {
   title: string
   description: string
   defaultOpen?: boolean
+  /** 禁用态：灰色显示、不可展开（模块关闭时用）。 */
+  disabled?: boolean
   children: ReactNode
 }
 
@@ -27,6 +29,11 @@ const cardStyle: CSSProperties = {
 const cardOpenStyle: CSSProperties = {
   background: 'var(--dsw-alias-bg-layer-2)',
   borderColor: 'var(--dsw-alias-label-dimmed)',
+}
+
+const cardDisabledStyle: CSSProperties = {
+  opacity: 0.5,
+  cursor: 'not-allowed',
 }
 
 const headerStyle: CSSProperties = {
@@ -79,15 +86,22 @@ const bodyStyle: CSSProperties = {
   padding: '14px 0 8px',
 }
 
-function ModuleCard({ title, description, defaultOpen = false, children }: ModuleCardProps): any {
+export function ModuleCard({ title, description, defaultOpen = false, disabled = false, children }: ModuleCardProps): any {
   const [open, setOpen] = useState(defaultOpen)
 
+  const baseStyle = disabled
+    ? { ...cardStyle, ...cardDisabledStyle }
+    : open
+      ? { ...cardStyle, ...cardOpenStyle }
+      : cardStyle
+
   return (
-    <div style={open ? { ...cardStyle, ...cardOpenStyle } : cardStyle}>
+    <div style={baseStyle}>
       <button
         type="button"
         style={headerStyle}
         aria-expanded={open}
+        disabled={disabled}
         onClick={() => setOpen(!open)}
       >
         <span style={headTextStyle}>
@@ -108,12 +122,14 @@ export interface ModelReasoningCardProps {
   rpc: any
   remote: any
   t: any
+  /** 禁用态（模块关闭时）。 */
+  disabled?: boolean
 }
 
 export function ModelReasoningCard(props: ModelReasoningCardProps): any {
-  const { api, rpc, remote, t } = props
+  const { api, rpc, remote, t, disabled } = props
   return (
-    <ModuleCard title={t('nav')} description={t('cardDescription')}>
+    <ModuleCard title={t('nav')} description={t('cardDescription')} disabled={disabled}>
       <ReasoningEditor api={api} rpc={rpc} remote={remote} t={t} />
     </ModuleCard>
   )
@@ -121,12 +137,14 @@ export function ModelReasoningCard(props: ModelReasoningCardProps): any {
 
 export interface CliMimicCardProps {
   api: any
+  /** 禁用态（模块关闭时）。 */
+  disabled?: boolean
 }
 
 export function CliMimicCard(props: CliMimicCardProps): any {
-  const { api } = props
+  const { api, disabled } = props
   return (
-    <ModuleCard title="CLI 请求模拟" description="本地代理 + fetch 拦截，把 DSH 请求伪装成 CLI 客户端">
+    <ModuleCard title="CLI 请求模拟" description="本地代理 + fetch 拦截，把 DSH 请求伪装成 CLI 客户端" disabled={disabled}>
       <CliMimicEditor api={api} />
     </ModuleCard>
   )

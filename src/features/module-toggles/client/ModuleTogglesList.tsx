@@ -7,9 +7,12 @@
  *
  * 状态由父级（DailyOptimizationSection）持有并传入，这样「插件设置」页签
  * 能同步感知开关变化（关闭的模块其配置卡片即时隐藏）。
+ *
+ * 排序：开启的模块排在前面（与「插件设置」页签共用 sortModuleIds）。
+ * 切换开关时用 FLIP 动画让行平滑移动到新位置（关闭的滑到下方、开启的滑到上方）。
  */
-import type { CSSProperties } from 'react'
-import { MODULES } from './index.js'
+import { useLayoutEffect, useRef, type CSSProperties } from 'react'
+import { MODULES, sortModuleIds } from './index.js'
 
 const rowStyle: CSSProperties = {
   alignItems: 'center',
@@ -45,14 +48,14 @@ function switchStyle(on: boolean): CSSProperties {
     width: 40,
     height: 22,
     borderRadius: 11,
-    border: '0',
+    border: on ? '0' : '1px solid var(--dsw-alias-border-l2)',
     cursor: 'pointer',
     flex: 'none',
     display: 'inline-flex',
     alignItems: 'center',
     padding: '0 3px',
     background: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-module-platform)',
-    transition: 'background .16s',
+    transition: 'background .16s, border-color .16s',
   }
 }
 
@@ -77,28 +80,70 @@ export interface ModuleTogglesListProps {
   onToggle: (id: string) => void
 }
 
-/** 模块开关列表：列出全部模块，每个一个开关。 */
+/** 模块开关列表：列出全部模块，每个一个开关，开启的排在前面，切换时行平滑移动。 */
 export function ModuleTogglesList({ states, onToggle }: ModuleTogglesListProps): any {
+  const ids = sortModuleIds(MODULES.map((m) => m.id), states)
+  const listRef = useRef<HTMLDivElement>(null)
+  // 切换前各行的旧位置（FLIP 起点）。
+  const prevRectsRef = useRef<Map<string, DOMRect>>(new Map())
+
+  // 切换前记录每行当前位置，再触发父级状态更新。
+  const handleToggle = (id: string): void => {
+    const rects = new Map<string, DOMRect>()
+    listRef.current?.querySelectorAll<HTMLElement>('[data-module-row]').forEach((row) => {
+      const key = row.getAttribute('data-module-row')
+      if (key) rects.set(key, row.getBoundingClientRect())
+    })
+    prevRectsRef.current = rects
+    onToggle(id)
+  }
+
+  // 重渲染后对比新旧位置，用 transform 反向补偿再过渡到原位（FLIP）。
+  useLayoutEffect(() => {
+    const prev = prevRectsRef.current
+    if (prev.size === 0) return
+    listRef.current?.querySelectorAll<HTMLElement>('[data-module-row]').forEach((row) => {
+      const key = row.getAttribute('data-module-row')
+      if (!key) return
+      const prevRect = prev.get(key)
+      if (!prevRect) return
+      const curRect = row.getBoundingClientRect()
+      const dx = prevRect.left - curRect.left
+      const dy = prevRect.top - curRect.top
+      if (dx === 0 && dy === 0) return
+      row.style.transition = 'none'
+      row.style.transform = `translate(${dx}px, ${dy}px)`
+      // 强制回流，让起始位移先落位，再过渡回原位。
+      void row.offsetHeight
+      row.style.transition = 'transform 300ms ease'
+      row.style.transform = ''
+    })
+    prevRectsRef.current = new Map()
+  }, [ids.join(',')])
+
   return (
-    <div>
-      {MODULES.map((m) => (
-        <div key={m.id} style={rowStyle}>
-          <div style={rowTextStyle}>
-            <div style={rowTitleStyle}>{m.label}</div>
-            <div style={rowDescStyle}>{m.description}</div>
+    <div ref={listRef}>
+      {ids.map((id) => {
+        const m = MODULES.find((x) => x.id === id)!
+        return (
+          <div key={m.id} data-module-row={m.id} style={rowStyle}>
+            <div style={rowTextStyle}>
+              <div style={rowTitleStyle}>{m.label}</div>
+              <div style={rowDescStyle}>{m.description}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={states[m.id]}
+              aria-label={m.label}
+              style={switchStyle(states[m.id])}
+              onClick={() => handleToggle(m.id)}
+            >
+              <span style={thumbStyle(states[m.id])} />
+            </button>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={states[m.id]}
-            aria-label={m.label}
-            style={switchStyle(states[m.id])}
-            onClick={() => onToggle(m.id)}
-          >
-            <span style={thumbStyle(states[m.id])} />
-          </button>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }

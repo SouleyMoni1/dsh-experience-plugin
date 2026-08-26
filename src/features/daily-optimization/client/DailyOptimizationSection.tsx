@@ -19,8 +19,9 @@ import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-cl
 import type { ClientConnectionRpc, IApiClient } from '@deepseek-ai/dsh-client-connection/client'
 import { ModelReasoningCard, CliMimicCard } from '../../settings/client/ExperienceSettingsCard.js'
 import { OpaqueBgRow } from '../../settings-page/client/OpaqueBgRow.js'
+import { AutoLoadHistoryCard } from '../../auto-load-history/client/AutoLoadHistoryCard.js'
 import { ModuleTogglesList } from '../../module-toggles/client/ModuleTogglesList.js'
-import { MODULES, isModuleEnabled, setModuleEnabled } from '../../module-toggles/client/index.js'
+import { MODULES, isModuleEnabled, setModuleEnabled, sortModuleIds } from '../../module-toggles/client/index.js'
 import type { ReasoningEditorInjected } from '../../model-reasoning/client/ReasoningEditor.js'
 
 /** 分区组件 props：官方 settings.section 运行时份额 + 本分区文案 + 注入面。 */
@@ -131,15 +132,18 @@ export function DailyOptimizationSection(props: DailyOptimizationSectionProps): 
     setModuleEnabled(id, next)
   }
 
-  // 插件设置页签的配置卡片：按模块开关过滤（关闭的模块其配置不再展示）。
+  // 插件设置页签的配置卡片：全部显示，关闭的模块卡片禁用灰色（不可展开）。
+  // 排序与「模块开关」页签一致（开启优先、再按清单顺序），开关变化时自动刷新。
   const settingsCards: { id: string; node: JSX.Element }[] = [
     {
       id: 'model-reasoning',
-      node: <ModelReasoningCard api={api} rpc={rpc} remote={remote} t={mrT} />,
+      node: <ModelReasoningCard api={api} rpc={rpc} remote={remote} t={mrT} disabled={!moduleStates['model-reasoning']} />,
     },
-    { id: 'cli-mimic', node: <CliMimicCard api={api} /> },
-    { id: 'settings-page', node: <OpaqueBgRow /> },
-  ].filter((c) => moduleStates[c.id])
+    { id: 'cli-mimic', node: <CliMimicCard api={api} disabled={!moduleStates['cli-mimic']} /> },
+    { id: 'settings-page', node: <OpaqueBgRow disabled={!moduleStates['settings-page']} /> },
+    { id: 'auto-load-history', node: <AutoLoadHistoryCard disabled={!moduleStates['auto-load-history']} /> },
+  ]
+  const settingsCardIds = sortModuleIds(settingsCards.map((c) => c.id), moduleStates)
 
   return (
     <div style={sectionStyle}>
@@ -167,15 +171,12 @@ export function DailyOptimizationSection(props: DailyOptimizationSectionProps): 
       </div>
       <div style={panelStyle}>
         {active === 'settings' ? (
-          settingsCards.length > 0 ? (
-            <div style={cardsStyle}>
-              {settingsCards.map((c) => (
-                <div key={c.id}>{c.node}</div>
-              ))}
-            </div>
-          ) : (
-            <p style={emptyStyle}>{t('settingsEmpty')}</p>
-          )
+          <div style={cardsStyle}>
+            {settingsCardIds.map((id) => {
+              const c = settingsCards.find((x) => x.id === id)!
+              return <div key={c.id}>{c.node}</div>
+            })}
+          </div>
         ) : (
           <div>
             <p style={emptyStyle}>{t('modulesIntro')}</p>

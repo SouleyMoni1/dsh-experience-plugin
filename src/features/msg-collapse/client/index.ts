@@ -46,38 +46,38 @@ function injectCss(): void {
   tag.dataset.plugin = 'dsh-experience-plugin'
   tag.dataset.dshCss = CSS_TAG
   tag.textContent = [
-    /* 横条：浅色分割线 + 右侧「已工作」按钮 */
-    `.${BAR_CLASS}{`,
-    'display:flex;align-items:center;gap:10px;',
-    'padding:6px 4px 2px;',
+    /* 横条：两行布局——上方文字行（靠左），下方分割线 */
+    '.' + BAR_CLASS + '{',
+    'display:flex;flex-direction:column;align-items:stretch;',
+    'gap:2px;padding:6px 4px 2px;',
     'user-select:none;',
     '}',
-    /* 浅色分割线 */
-    `.${BAR_CLASS}::before{`,
-    'content:"";flex:1;height:1px;',
-    'background:var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.18));',
-    '}',
-    /* 按钮：浅灰小字，hover 加深 */
-    `.${TOGGLE_CLASS}{`,
-    'display:inline-flex;align-items:center;gap:4px;',
-    'padding:2px 8px;border:none;background:transparent;',
-    'font-size:11px;line-height:1.4;color:rgba(127,127,127,.65);',
-    'cursor:pointer;white-space:nowrap;',
+    /* 文字行：靠左，16px */
+    '.' + TOGGLE_CLASS + '{',
+    'display:inline-flex;align-items:center;gap:6px;',
+    'padding:0;border:none;background:transparent;',
+    'font-size:16px;line-height:1.4;color:rgba(127,127,127,.65);',
+    'cursor:pointer;white-space:nowrap;align-self:flex-start;',
     'transition:color .12s ease;',
     '}',
-    `.${TOGGLE_CLASS}:hover{color:var(--dsw-alias-state-info-primary,#4ea1ff);}`,
-    `.${ARROW_CLASS}{`,
-    'display:inline-block;font-size:10px;',
-    'transform:rotate(0deg);transition:transform .15s ease;',
+    '.' + TOGGLE_CLASS + ':hover{color:var(--dsw-alias-state-info-primary,#4ea1ff);}',
+    /* 箭头：展开指向下（rotate 90°），折叠指向右（rotate 0°），动画过渡 */
+    '.' + ARROW_CLASS + '{',
+    'display:inline-block;font-size:18px;',
+    'transform:rotate(90deg);transition:transform .2s ease;',
     '}',
-    /* 折叠后箭头朝右 */
-    `.${COLLAPSED_CLASS} .${ARROW_CLASS}{transform:rotate(90deg);}`,
+    '.' + COLLAPSED_CLASS + ' .' + ARROW_CLASS + '{transform:rotate(0deg);}',
+    /* 分割线 */
+    '.' + BAR_CLASS + '::after{',
+    `content:"";display:block;height:1px;`,
+    'background:var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.18));',
+    '}',
     /* 折叠/展开过渡：工作节点淡入淡出 */
-    `.${WORK_CLASS}{transition:opacity ${FADE_MS}ms ease;}`,
-    `.${WORK_CLASS}.${FADING_CLASS}{opacity:0;}`,
+    '.' + WORK_CLASS + '{transition:opacity ' + FADE_MS + 'ms ease;}',
+    '.' + WORK_CLASS + '.' + FADING_CLASS + '{opacity:0;}',
     /* 最终回复块上下滑动过渡（transform 位移补偿法） */
-    `.${SLIDE_CLASS}{transition:transform ${SLIDE_MS}ms ease;will-change:transform;}`,
-  ].join('\n')
+    '.' + SLIDE_CLASS + '{transition:transform ' + SLIDE_MS + 'ms ease;will-change:transform;}',
+  ].join('\n'),
   document.head.appendChild(tag)
 }
 
@@ -86,6 +86,9 @@ function isWorkItem(el: HTMLElement): boolean {
   if (el.querySelector('.gdEzaW_userRow') !== null) return false // 用户消息本身
   if (el.querySelector('[class*="Sxvs8a_root"]') !== null) return true // Think / 回复块
   if (el.querySelector('[class*="ztWv_q_callRow"]') !== null) return true // 工具调用
+  if (el.querySelector('.gdEzaW_compactionRow') !== null) return true // 上下文压缩
+  if (el.querySelector('.gdEzaW_retryRow') !== null) return true // 模型重试
+  if (el.querySelector('.gdEzaW_turnErrorRow') !== null) return true // 运行失败 / 输出截断
   const txt = (el.textContent || '').trim()
   if (txt.startsWith('上下文注入')) return true
   return false
@@ -118,19 +121,23 @@ function roundKeyOf(userEl: Element): string {
   return k
 }
 
-/** 收集一个回合里所有处理过程 flowItem（不含用户消息、不含最终回复、不含状态行）。 */
-function collectWorkItems(start: number, end: number, items: HTMLElement[]): HTMLElement[] {
+/** 收集一个回合里所有处理过程 flowItem（不含用户消息、不含最终回复、不含状态行）。
+ *  roundDone=false（处理中）：所有 Sxvs8a 都算处理过程（AI 回复尚未定型）；
+ *  roundDone=true（处理完成）：最后一个 Sxvs8a 是最终回复，不隐藏。 */
+function collectWorkItems(start: number, end: number, items: HTMLElement[], roundDone: boolean): HTMLElement[] {
   const out: HTMLElement[] = []
   for (let i = start + 1; i <= end; i++) {
     const el = items[i]
     if (el.querySelector('.gdEzaW_userRow') !== null) continue
     if (el.querySelector('[class*="Sxvs8a_root"]') !== null) {
-      // 保留最后一个 Sxvs8a（AI 最终回复）
-      let isLast = true
-      for (let j = i + 1; j <= end; j++) {
-        if (items[j].querySelector('[class*="Sxvs8a_root"]') !== null) { isLast = false; break }
+      if (roundDone) {
+        // 处理完成：保留最后一个 Sxvs8a（AI 最终回复）
+        let isLast = true
+        for (let j = i + 1; j <= end; j++) {
+          if (items[j].querySelector('[class*="Sxvs8a_root"]') !== null) { isLast = false; break }
+        }
+        if (isLast) continue // 最终回复不隐藏
       }
-      if (isLast) continue // 最终回复不隐藏
     }
     if (isWorkItem(el)) out.push(el)
   }
@@ -144,14 +151,19 @@ function findFirstWork(start: number, end: number, items: HTMLElement[]): HTMLEl
     if (el.querySelector('.gdEzaW_userRow') !== null) continue
     if (el.querySelector('[class*="Sxvs8a_root"]') !== null) return el
     if (el.querySelector('[class*="ztWv_q_callRow"]') !== null) return el
+    if (el.querySelector('.gdEzaW_compactionRow') !== null) return el
+    if (el.querySelector('.gdEzaW_retryRow') !== null) return el
+    if (el.querySelector('.gdEzaW_turnErrorRow') !== null) return el
     const txt = (el.textContent || '').trim()
     if (txt.startsWith('上下文注入')) return el
   }
   return null
 }
 
-/** 找到回合内 AI 最终回复的 flowItem（最后一个 Sxvs8a），没有则 null。 */
-function findFinalReply(start: number, end: number, items: HTMLElement[]): HTMLElement | null {
+/** 找到回合内 AI 最终回复的 flowItem（最后一个 Sxvs8a），没有则 null。
+ *  roundDone=false（处理中）：无最终回复，返回 null。 */
+function findFinalReply(start: number, end: number, items: HTMLElement[], roundDone: boolean): HTMLElement | null {
+  if (!roundDone) return null
   for (let i = end; i > start; i--) {
     if (items[i].querySelector('[class*="Sxvs8a_root"]') !== null) return items[i]
   }
@@ -178,6 +190,8 @@ interface BarState {
   placeMap: Map<HTMLElement, { parent: HTMLElement | null; next: Element | null }>
   collapsed: boolean
   animating: boolean
+  /** 用户手动点过（展开/折叠）→ 处理完成时不再自动折叠。 */
+  userToggled: boolean
   base: string
   label: HTMLElement
   finalReply: HTMLElement | null
@@ -187,15 +201,87 @@ interface BarState {
 /** 给一个回合注入折叠横条（插在第一个处理过程上方）。 */
 function setupRound(start: number, end: number, items: HTMLElement[]): void {
   const firstWork = findFirstWork(start, end, items)
-  // 已注入检查：紧邻前一个兄弟是横条（同一回合的 bar 已在）
-  const prevEl = firstWork !== null ? firstWork.previousElementSibling : null
-  const existingBar = prevEl !== null && prevEl.classList.contains(BAR_CLASS)
-    ? prevEl as HTMLElement
-    : null
+  // 已注入检查：从本回合用户消息 flowItem 之后扫描兄弟节点，找已存在的 bar。
+  // 不能只看 firstWork 的前一个兄弟——处理中 DSH 会把新 flowItem 插在 bar 前面
+  // （用户消息与 bar 之间），导致 prevEl 不是 bar 而误判「未注入」，创建第二个 bar
+  // （用户报告的 bug：处理中折叠后每处理一步就多一个折叠窗口）。
+  let existingBar: HTMLElement | null = null
+  {
+    const userFlow = items[start]
+    let sib = userFlow.nextElementSibling
+    while (sib !== null) {
+      if (sib.classList && sib.classList.contains(BAR_CLASS)) {
+        existingBar = sib as HTMLElement
+        break
+      }
+      if (sib.classList && sib.classList.contains('Md3f7G_flowItem')) {
+        const idx = items.indexOf(sib as HTMLElement)
+        if (idx > end) break // 超出本回合
+      }
+      sib = sib.nextElementSibling
+    }
+  }
+  // 是否最新回合（最后一个用户消息）
+  const isLastRound = (() => {
+    const userRows: number[] = []
+    items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) userRows.push(i) })
+    const lastStart = userRows[userRows.length - 1]
+    return start === lastStart
+  })()
+  // 回合是否已处理完成：出现回合尾部（data-turn-tail / timeEnd）即完成
+  const roundDone = (() => {
+    for (let i = start + 1; i <= end; i++) {
+      if (items[i].querySelector('[data-turn-tail]') !== null) return true
+      if (items[i].querySelector('.p-xYUq_timeEnd') !== null) return true
+    }
+    return false
+  })()
   if (existingBar !== null && (existingBar as unknown as { __state?: BarState }).__state !== undefined) {
     // bar 已存在：仅同步文案（work 节点可能在 vault，不重建）
     const st = (existingBar as unknown as { __state: BarState }).__state
-    st.label.textContent = st.collapsed ? `${st.base} · 展开` : st.base
+    st.label.textContent = st.base
+    // 增量收集：DSH 可能在 bar 创建后插入新的处理过程元素（上下文压缩 compaction、
+    // 模型重试 model-retry、运行失败/输出截断 turn-error 等），这些不在 st.work 里，
+    // 折叠时不会被移入 vault。每次扫描重新收集回合内所有 work，把新元素补进去。
+    const freshWork = collectWorkItems(start, end, items, roundDone)
+    for (const w of freshWork) {
+      if (!st.work.includes(w)) {
+        st.work.push(w)
+        w.classList.add(WORK_CLASS)
+        // 已折叠：新元素直接移入 vault（记录原位，展开时可恢复）
+        if (st.collapsed && w.closest('.wSkVaW_scrollBody') !== null) {
+          st.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
+          getVault().appendChild(w)
+        }
+      }
+    }
+    // 处理完成时（roundDone 从 false→true）：处理中创建的 bar 把最终回复也算进了 work，
+    // 需要重新计算 work（排除最终回复）并补上 finalReply，否则折叠会把最终回复也藏进 vault。
+    if (roundDone && st.finalReply === null) {
+      st.finalReply = findFinalReply(start, end, items, true)
+      const fr = st.finalReply
+      if (fr !== null) {
+        st.work = st.work.filter((w) => w !== fr)
+      }
+    }
+    // 需求 2：最新回合处理中保持展开；处理完成（AI 完成或手动停止）→ 自动折叠
+    // 用户手动点过（userToggled）→ 尊重用户选择，不再自动折叠
+    if (isLastRound && !st.collapsed && roundDone && !st.userToggled) {
+      st.collapsed = true
+      st.label.textContent = st.base
+      existingBar.classList.add(COLLAPSED_CLASS)
+      // 把 work 移入 vault（无动画，直接折叠）
+      const toHide = st.work.filter((w) => w.closest('.wSkVaW_scrollBody') !== null)
+      for (const w of toHide) {
+        st.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
+        getVault().appendChild(w)
+      }
+      const fr = st.finalReply
+      if (fr !== null) {
+        const frTitle = fr.querySelector<HTMLElement>('[class*="QWLzlG_root"]')
+        if (frTitle !== null) frTitle.style.display = 'none'
+      }
+    }
     return
   }
 
@@ -206,14 +292,14 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   // 收集 work：优先从对话区扫；若扫不到（bar 被 DSH 重建冲掉、work 全在 vault），
   // 从 vault 按回合 key 恢复——否则 work.length===0 直接 return，bar 永不重建
   // （按钮和分界线消失的概率 bug）。
-  let work = collectWorkItems(start, end, items)
+  let work = collectWorkItems(start, end, items, roundDone)
   let recoveredFromVault = false
   if (work.length === 0 && roundKey !== null) {
     work = Array.from(getVault().querySelectorAll<HTMLElement>(`.${WORK_CLASS}`))
       .filter((w) => w.getAttribute('data-dsh-round-key') === roundKey)
     recoveredFromVault = work.length > 0
   }
-  const finalReply = findFinalReply(start, end, items)
+  const finalReply = findFinalReply(start, end, items, roundDone)
   if (work.length === 0) return // 没有可折叠内容
 
   // 横条
@@ -233,7 +319,7 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   const dur = extractDuration(start, end, items)
   const base = dur !== null ? `已工作 ${dur}` : `已工作 ${work.length} 步`
   label.textContent = base
-  btn.append(arrow, label)
+  btn.append(label, arrow)
   bar.appendChild(btn)
 
   // 插到第一个处理过程之前；若 work 全在 vault（bar 被 DSH 重建冲掉后恢复），
@@ -247,20 +333,16 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
     }
   }
 
-  // 默认状态：最新回合展开，历史回合折叠；从 vault 恢复的 bar 保持折叠
-  const isLastRound = (() => {
-    const userRows: number[] = []
-    items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) userRows.push(i) })
-    const lastStart = userRows[userRows.length - 1]
-    return start === lastStart
-  })()
-  const collapsed = recoveredFromVault || !isLastRound
+  // 默认状态：最新回合——处理中展开、处理完成自动折叠；历史回合折叠；
+  // 从 vault 恢复的 bar 保持折叠（isLastRound / roundDone 已在函数开头计算）
+  const collapsed = recoveredFromVault || !isLastRound || roundDone
 
   const state: BarState = {
     work,
     placeMap: new Map(),
     collapsed,
     animating: false,
+    userToggled: false,
     base,
     label,
     finalReply,
@@ -280,7 +362,7 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
       if (toHide.length === 0) {
         // 全在仓库，无动画可做
         bar.classList.toggle(COLLAPSED_CLASS, true)
-        label.textContent = `${base} · 展开`
+        label.textContent = base
         return
       }
       // 记录原位
@@ -302,7 +384,7 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
           getVault().appendChild(w)
         }
         bar.classList.add(COLLAPSED_CLASS)
-        label.textContent = `${base} · 展开`
+        label.textContent = base
         // 隐藏最终回复 Think 标题
         if (frTitle !== null) {
           frTitle.classList.remove(FADING_CLASS)
@@ -410,6 +492,7 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   btn.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
+    state.userToggled = true
     state.collapsed = !state.collapsed
     apply(true)
   })
@@ -417,12 +500,6 @@ function setupRound(start: number, end: number, items: HTMLElement[]): void {
   apply(false)
 }
 
-/** 记录上次扫描时「末尾用户消息」的唯一标记：检测新回合（发送新消息）→ 自动折叠上一轮。
- *  用「末尾用户消息元素引用」判断——自动加载历史是在顶部插入，末尾用户消息不变；
- *  只有真正发送新消息才会让末尾用户消息变化。 */
-let lastTailUserEl: Element | null = null
-/** 当前「最新回合」的 bar 引用：新回合出现时用它精确折叠上一轮。 */
-let lastRoundBar: HTMLElement | null = null
 
 /** 主装配：扫描会话，为每个回合的第一个处理过程上方设置折叠横条。 */
 function applyCollapse(): void {
@@ -433,17 +510,6 @@ function applyCollapse(): void {
   // 找所有用户消息行
   const userIdxs: number[] = []
   items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) userIdxs.push(i) })
-  // 新回合检测：末尾用户消息变化（发送了新消息）→ 自动折叠上一轮。
-  // （自动加载历史是在顶部插入，末尾用户消息元素引用不变，不会误触发）
-  const tailUser = userIdxs.length > 0 ? items[userIdxs[userIdxs.length - 1]].querySelector('.gdEzaW_userRow') : null
-  if (lastTailUserEl !== null && tailUser !== null && tailUser !== lastTailUserEl) {
-    // 折叠「上一轮」= 之前记录的最新回合 bar（新回合 bar 此时可能还没创建，
-    // 不能用 bars[bars.length-2]——新 bar 未出现时最后一个 bar 才是上一轮）
-    if (lastRoundBar !== null && lastRoundBar.isConnected && !lastRoundBar.classList.contains(COLLAPSED_CLASS)) {
-      lastRoundBar.querySelector<HTMLButtonElement>(`.${TOGGLE_CLASS}`)?.click()
-    }
-  }
-  if (tailUser !== null) lastTailUserEl = tailUser
   // 清理已不存在的横条（会话切换 / 行被虚拟滚动卸载时）
   scroll.querySelectorAll(`.${BAR_CLASS}`).forEach((b) => {
     if (!b.isConnected) b.remove()
@@ -453,100 +519,79 @@ function applyCollapse(): void {
     const end = k + 1 < userIdxs.length ? userIdxs[k + 1] - 1 : items.length - 1
     setupRound(start, end, items)
   }
-  // 记录当前最新回合的 bar 引用：供下次「新回合自动折叠上一轮」使用
-  const allBars = scroll.querySelectorAll<HTMLElement>(`.${BAR_CLASS}`)
-  if (allBars.length > 0) {
-    lastRoundBar = allBars[allBars.length - 1]
-  } else {
-    lastRoundBar = null
-  }
 }
 
-/** 官方「加载更早」按钮：.Md3f7G_older 容器内的 button；无则 null。 */
-function findOlderButton(scroll: HTMLElement): HTMLButtonElement | null {
-  const older = scroll.querySelector<HTMLElement>('.Md3f7G_older')
-  if (older === null) return null
-  return older.querySelector<HTMLButtonElement>('button')
-}
-
-/** 自动加载历史到最多 20 条用户消息：反复点「加载更早」直到达到上限或按钮消失。
- *  达到 20 条后**保留**原版「加载更早」按钮，由用户手动点继续加载。
+/** 快速折叠路径：最新回合已折叠时，把 DSH 新插入的处理过程元素立即移入 vault，
+ *  避免它们先渲染在界面上再被折叠（闪现）。observer 防抖 500ms 太慢——
+ *  新元素插入后要等 500ms 才被移走，用户会看到「先显示再消失」。
+ *  此函数在 observer 回调里同步调用，不等防抖。
  *
- *  **性能策略（温和单点）**：实测 DSH 从零加载历史时每次「加载更早」只插 ~2 条、
- *  响应 ~1s。**连点会触发 DSH 并发请求风暴，把渲染挤爆（首次消息被拖到 6.5s）**；
- *  串行等 scrollHeight 又太慢（15s+）。折中：**每次只点 1 下**，等「用户消息数真正
- *  增加」再点下一次——不风暴、UI 保持响应，总时长由 DSH 实际吞吐决定。
- *
- *  **会话切换安全**：每轮重新获取 scrollBody——DSH 切会话会重建 scrollBody，
- *  检测到切换立即终止旧加载，由 observer 在新会话上重新触发。 */
-const AUTO_LOAD_USERS = 20
-/** 加载中标记：存启动时间戳（0=空闲）。比布尔更稳——若旧加载链因切换会话而
- *  卡死，超过 STALE_MS 后新调用可直接接管，不会永久锁死自动加载。 */
-let loadAllRunning = 0
-const LOAD_STALE_MS = 15000
-function loadAllHistory(): void {
+ *  注意 roundDone 的传递：处理中（false）所有 Sxvs8a 都算 work；处理完成（true）
+ *  最后一个 Sxvs8a 是最终回复，不能移入 vault（否则最终回复会消失）。
+ *  处理完成瞬间 quickFold 可能用 false 把最终回复也移入 vault，此时 applyCollapse
+ *  的 existingBar 分支会把它从 work 里移除——但 vault 里的元素不会自动移回，
+ *  所以这里检测到 roundDone 后要把最终回复从 vault 移回 scroll。 */
+function quickFoldNewWork(): void {
   const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
   if (scroll === null) return
-  const now = performance.now()
-  // 防止并发触发；但加载链卡死（超时）时允许接管
-  if (loadAllRunning !== 0 && now - loadAllRunning < LOAD_STALE_MS) return
-  loadAllRunning = now
-
-  /** 统一结束：释放加载锁 + 重扫。 */
-  const finish = (): void => {
-    loadAllRunning = 0
-    applyCollapse()
+  const items = Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem'))
+  if (items.length === 0) return
+  // 找最新回合（最后一个用户消息）
+  let lastUser = -1
+  items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) lastUser = i })
+  if (lastUser < 0) return
+  const userFlow = items[lastUser]
+  // 找最新回合的 bar
+  let bar: HTMLElement | null = null
+  let sib = userFlow.nextElementSibling
+  while (sib !== null) {
+    if (sib.classList && sib.classList.contains(BAR_CLASS)) { bar = sib as HTMLElement; break }
+    sib = sib.nextElementSibling
   }
-
-  const MAX_TRIES = 40 // 单次会话加载轮数上限（防异常死循环）
-  let tries = 0
-
-  const step = (): void => {
-    // 会话切换检测
-    const cur = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
-    if (cur === null || cur !== scroll) {
-      finish()
-      return
+  if (bar === null) return
+  const st = (bar as unknown as { __state?: BarState }).__state
+  if (st === undefined || !st.collapsed) return // 未折叠不处理
+  // 回合是否已处理完成
+  const end = items.length - 1
+  const roundDone = (() => {
+    for (let i = lastUser + 1; i <= end; i++) {
+      if (items[i].querySelector('[data-turn-tail]') !== null) return true
+      if (items[i].querySelector('.p-xYUq_timeEnd') !== null) return true
     }
-    if (tries >= MAX_TRIES) {
-      finish()
-      return
-    }
-    const btn = findOlderButton(scroll)
-    if (btn === null) {
-      // 全部加载完成（没有更早历史了）
-      finish()
-      return
-    }
-    // 达到 20 条上限：停止自动加载，保留原版「加载更早」按钮
-    if (scroll.querySelectorAll('.gdEzaW_userRow').length >= AUTO_LOAD_USERS) {
-      finish()
-      return
-    }
-    // 点 1 下，等用户消息数真正增加（DSH 完成一次插入）再继续
-    const usersBefore = scroll.querySelectorAll('.gdEzaW_userRow').length
-    tries++
-    btn.click()
-    let poll = 0
-    const check = (): void => {
-      // 检查期间切会话 → 终止
-      const cur2 = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
-      if (cur2 !== scroll) {
-        finish()
-        return
+    return false
+  })()
+  // 处理完成：把最终回复从 vault 移回 scroll（若被误移入）
+  if (roundDone) {
+    const fr = findFinalReply(lastUser, end, items, true)
+    if (fr !== null) {
+      const inVault = fr.closest('.wSkVaW_scrollBody') === null
+      if (inVault) {
+        const p = st.placeMap.get(fr)
+        if (p !== undefined && p.parent !== null && p.parent.isConnected) {
+          const nextOk = p.next !== null && p.next.parentElement === p.parent
+          if (nextOk) p.parent.insertBefore(fr, p.next as Element)
+          else p.parent.appendChild(fr)
+        } else if (fr.parentElement !== null) {
+          fr.parentElement.appendChild(fr)
+        }
+        st.placeMap.delete(fr)
       }
-      const usersNow = scroll.querySelectorAll('.gdEzaW_userRow').length
-      poll++
-      if (usersNow > usersBefore || poll > 40) {
-        // 本次插入完成（或超时 8s），给 DSH 渲染留 200ms 缓冲，继续下一轮
-        window.setTimeout(step, 200)
-        return
-      }
-      window.setTimeout(check, 200)
+      st.work = st.work.filter((w) => w !== fr)
+      st.finalReply = fr
     }
-    window.setTimeout(check, 200)
   }
-  window.setTimeout(step, 100)
+  // 扫描最新回合内所有 flowItem，把不在 st.work 里的 work 立即移入 vault
+  const freshWork = collectWorkItems(lastUser, end, items, roundDone)
+  for (const w of freshWork) {
+    if (!st.work.includes(w)) {
+      st.work.push(w)
+      w.classList.add(WORK_CLASS)
+      if (w.closest('.wSkVaW_scrollBody') !== null) {
+        st.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
+        getVault().appendChild(w)
+      }
+    }
+  }
 }
 
 /**
@@ -557,24 +602,16 @@ export function applyMsgCollapse(ctx: ClientContext): void {
   ctx.effect(() => {
     injectCss()
     applyCollapse()
-    // 自动把历史会话全部加载出来（点「加载更早」直到按钮消失），加载后重新扫描
-    loadAllHistory()
-    // 会话切换 / 消息新增：防抖扫描 + 自动补载历史
+    // 会话切换 / 消息新增：防抖扫描
     let timer = 0
     const observer = new MutationObserver(() => {
+      // 快速折叠：最新回合已折叠时，新插入的处理过程元素立即移入 vault，
+      // 不等 500ms 防抖——避免「先显示再消失」的闪现。
+      quickFoldNewWork()
       if (timer !== 0) return
       timer = window.setTimeout(() => {
         timer = 0
-        // 加载历史期间跳过全量扫描：loadAllHistory 每次点击都会触发大量
-        // DOM 变更，若此时又全量扫描几千条 flowItem，主线程会被占满导致
-        // 切回会话时停顿。加载完成时 loadAllHistory 自己会 applyCollapse。
-        if (loadAllRunning) return
         applyCollapse()
-        // 有「加载更早」按钮 → 自动继续加载历史（直到 20 条上限）
-        const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
-        if (scroll !== null && findOlderButton(scroll) !== null) {
-          loadAllHistory()
-        }
       }, 500)
     })
     observer.observe(document.documentElement, { childList: true, subtree: true })

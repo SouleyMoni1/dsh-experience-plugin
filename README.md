@@ -17,8 +17,18 @@ DSH（DeepSeek Harness）功能插件，按功能模块组织：
 
 ## 安装
 
+插件已发布到 npm（`dsh-experience-plugin`），两种安装方式：
+
+**方式一：DSH 插件命令（推荐，自动从 npm 拉取）**
+
 ```sh
 dsh plugin --profile web add dsh-experience-plugin
+```
+
+**方式二：直接 npm 安装**
+
+```sh
+npm install dsh-experience-plugin
 ```
 
 本地开发安装（Windows 跨盘符时先建 C 盘 junction）：

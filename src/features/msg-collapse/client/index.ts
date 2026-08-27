@@ -37,6 +37,12 @@ const FADE_MS = 160
 const SLIDE_MS = 180
 /** 样式标签 key。 */
 const CSS_TAG = 'dsh-experience/msg-collapse.css'
+/** 首帧折叠防抖时长 ms：消息流由 React 异步渲染，DOM 出现后尽快折叠历史回合，
+ *  尽量压到一帧内，避免「先看到展开、再折叠」的闪现。80ms 足够合并 React 首帧
+ *  的分批 commit（避免只折叠一半的中间态），又比原来的 500ms 快得多。 */
+const FIRST_FRAME_DEBOUNCE_MS = 80
+/** 后续增量更新的防抖时长 ms（消息持续插入时批量合并）。 */
+const INCREMENTAL_DEBOUNCE_MS = 500
 
 /** 注入样式。 */
 function injectCss(): void {
@@ -521,77 +527,85 @@ function applyCollapse(): void {
   }
 }
 
-/** 快速折叠路径：最新回合已折叠时，把 DSH 新插入的处理过程元素立即移入 vault，
+/** 快速折叠路径：所有**已折叠**回合中，把 DSH 新插入的处理过程元素立即移入 vault，
  *  避免它们先渲染在界面上再被折叠（闪现）。observer 防抖 500ms 太慢——
  *  新元素插入后要等 500ms 才被移走，用户会看到「先显示再消失」。
- *  此函数在 observer 回调里同步调用，不等防抖。
+ *  此函数在 observer 回调里（rAF 合并后）执行，不等防抖。
  *
  *  注意 roundDone 的传递：处理中（false）所有 Sxvs8a 都算 work；处理完成（true）
  *  最后一个 Sxvs8a 是最终回复，不能移入 vault（否则最终回复会消失）。
- *  处理完成瞬间 quickFold 可能用 false 把最终回复也移入 vault，此时 applyCollapse
+ *  处理完成瞬间 quickFold 可能把最终回复也移入 vault，此时 applyCollapse
  *  的 existingBar 分支会把它从 work 里移除——但 vault 里的元素不会自动移回，
- *  所以这里检测到 roundDone 后要把最终回复从 vault 移回 scroll。 */
+ *  所以这里检测到 roundDone 后要把最终回复从 vault 移回 scroll。
+ *
+ *  遍历所有已折叠回合（不只是最新回合）：会话切换 / 加载历史时所有历史回合都折叠，
+ *  后续增量（新处理步骤、模型重试等）会插到任意历史回合——统一快速折叠，避免
+ *  「先显示再消失」出现在任何已折叠回合里。 */
 function quickFoldNewWork(): void {
   const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
   if (scroll === null) return
   const items = Array.from(scroll.querySelectorAll<HTMLElement>('.Md3f7G_flowItem'))
   if (items.length === 0) return
-  // 找最新回合（最后一个用户消息）
-  let lastUser = -1
-  items.forEach((f, i) => { if (f.querySelector('.gdEzaW_userRow') !== null) lastUser = i })
-  if (lastUser < 0) return
-  const userFlow = items[lastUser]
-  // 找最新回合的 bar
-  let bar: HTMLElement | null = null
-  let sib = userFlow.nextElementSibling
-  while (sib !== null) {
-    if (sib.classList && sib.classList.contains(BAR_CLASS)) { bar = sib as HTMLElement; break }
-    sib = sib.nextElementSibling
-  }
-  if (bar === null) return
-  const st = (bar as unknown as { __state?: BarState }).__state
-  if (st === undefined || !st.collapsed) return // 未折叠不处理
-  // 回合是否已处理完成
-  const end = items.length - 1
-  const roundDone = (() => {
-    for (let i = lastUser + 1; i <= end; i++) {
-      if (items[i].querySelector('[data-turn-tail]') !== null) return true
-      if (items[i].querySelector('.p-xYUq_timeEnd') !== null) return true
+  document.querySelectorAll<HTMLElement>(`.${BAR_CLASS}.${COLLAPSED_CLASS}`).forEach((bar) => {
+    const st = (bar as unknown as { __state?: BarState }).__state
+    if (st === undefined || !st.collapsed) return
+    // 定位本回合起点：bar 之前最近的一个「用户消息 flowItem」
+    let start = -1
+    let sib: Element | null = bar
+    while (sib !== null && start < 0) {
+      if (sib.classList && sib.classList.contains('Md3f7G_flowItem')) {
+        const idx = items.indexOf(sib as HTMLElement)
+        if (idx >= 0 && sib.querySelector('.gdEzaW_userRow') !== null) start = idx
+      }
+      sib = sib.previousElementSibling
     }
-    return false
-  })()
-  // 处理完成：把最终回复从 vault 移回 scroll（若被误移入）
-  if (roundDone) {
-    const fr = findFinalReply(lastUser, end, items, true)
-    if (fr !== null) {
-      const inVault = fr.closest('.wSkVaW_scrollBody') === null
-      if (inVault) {
-        const p = st.placeMap.get(fr)
-        if (p !== undefined && p.parent !== null && p.parent.isConnected) {
-          const nextOk = p.next !== null && p.next.parentElement === p.parent
-          if (nextOk) p.parent.insertBefore(fr, p.next as Element)
-          else p.parent.appendChild(fr)
-        } else if (fr.parentElement !== null) {
-          fr.parentElement.appendChild(fr)
+    if (start < 0) return
+    // 终点：下一个用户消息 flowItem 之前，或 items 末尾
+    let end = items.length - 1
+    for (let i = start + 1; i < items.length; i++) {
+      if (items[i].querySelector('.gdEzaW_userRow') !== null) { end = i - 1; break }
+    }
+    // 回合是否已处理完成
+    const roundDone = (() => {
+      for (let i = start + 1; i <= end; i++) {
+        if (items[i].querySelector('[data-turn-tail]') !== null) return true
+        if (items[i].querySelector('.p-xYUq_timeEnd') !== null) return true
+      }
+      return false
+    })()
+    // 处理完成：把最终回复从 vault 移回 scroll（若被误移入）
+    if (roundDone) {
+      const fr = findFinalReply(start, end, items, true)
+      if (fr !== null) {
+        const inVault = fr.closest('.wSkVaW_scrollBody') === null
+        if (inVault) {
+          const p = st.placeMap.get(fr)
+          if (p !== undefined && p.parent !== null && p.parent.isConnected) {
+            const nextOk = p.next !== null && p.next.parentElement === p.parent
+            if (nextOk) p.parent.insertBefore(fr, p.next as Element)
+            else p.parent.appendChild(fr)
+          } else if (fr.parentElement !== null) {
+            fr.parentElement.appendChild(fr)
+          }
+          st.placeMap.delete(fr)
         }
-        st.placeMap.delete(fr)
-      }
-      st.work = st.work.filter((w) => w !== fr)
-      st.finalReply = fr
-    }
-  }
-  // 扫描最新回合内所有 flowItem，把不在 st.work 里的 work 立即移入 vault
-  const freshWork = collectWorkItems(lastUser, end, items, roundDone)
-  for (const w of freshWork) {
-    if (!st.work.includes(w)) {
-      st.work.push(w)
-      w.classList.add(WORK_CLASS)
-      if (w.closest('.wSkVaW_scrollBody') !== null) {
-        st.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
-        getVault().appendChild(w)
+        st.work = st.work.filter((w) => w !== fr)
+        st.finalReply = fr
       }
     }
-  }
+    // 扫描本回合内所有 flowItem，把不在 st.work 里的 work 立即移入 vault
+    const freshWork = collectWorkItems(start, end, items, roundDone)
+    for (const w of freshWork) {
+      if (!st.work.includes(w)) {
+        st.work.push(w)
+        w.classList.add(WORK_CLASS)
+        if (w.closest('.wSkVaW_scrollBody') !== null) {
+          st.placeMap.set(w, { parent: w.parentElement, next: w.nextElementSibling })
+          getVault().appendChild(w)
+        }
+      }
+    }
+  })
 }
 
 /**
@@ -602,17 +616,102 @@ export function applyMsgCollapse(ctx: ClientContext): void {
   ctx.effect(() => {
     injectCss()
     applyCollapse()
-    // 会话切换 / 消息新增：防抖扫描
+    // 会话切换 / 消息新增：防抖扫描（增量兜底）。
+    // 首帧用短防抖（消息流 React 异步渲染，DOM 出现后尽快折叠历史回合，压掉闪现）；
+    // 首次成功折叠后切到长防抖（消息持续插入时批量合并）。
     let timer = 0
-    const observer = new MutationObserver(() => {
-      // 快速折叠：最新回合已折叠时，新插入的处理过程元素立即移入 vault，
-      // 不等 500ms 防抖——避免「先显示再消失」的闪现。
-      quickFoldNewWork()
+    let debounceMs = FIRST_FRAME_DEBOUNCE_MS
+    // 当前已挂载的滚动容器引用。切换会话时 DSH 会重建 .wSkVaW_scrollBody（元素引用变化），
+    // 借此识别「进入新会话」，把防抖重置回短防抖——新会话的历史回合尽快折叠，避免
+    // 「先看到未折叠、再折叠」的闪现。切换完成后本应切回长防抖（增量更新用），
+    // 但若错过会话切换信号，这里每次都会检查引用，保证切会话后一定回到短防抖。
+    let scrollBodyRef: HTMLElement | null = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+    // quickFold 合并调度：最新回合已折叠时，新插入的处理过程元素尽快移入 vault，
+    // 避免「先显示再消失」的闪现。切换会话时 DSH 会一次性插入几十个 flowItem，
+    // MutationObserver 被连续触发几十次——若每次回调都同步全量扫描，总代价 O(n²)。
+    // 用 rAF 合并——同帧内的多次 mutation 只扫一次，把卡顿压到可接受范围。
+    let quickRaf = 0
+    let quickTimer = 0
+    const scheduleQuickFold = (): void => {
+      if (quickRaf !== 0) return
+      quickRaf = requestAnimationFrame(() => {
+        quickRaf = 0
+        if (quickTimer !== 0) {
+          clearTimeout(quickTimer)
+          quickTimer = 0
+        }
+        quickFoldNewWork()
+      })
+      // 兜底：rAF 在后台/被节流时不触发，但折叠不能因此卡住——超过 400ms 直接执行。
+      if (quickTimer === 0) {
+        quickTimer = window.setTimeout(() => {
+          quickTimer = 0
+          if (quickRaf !== 0) {
+            cancelAnimationFrame(quickRaf)
+            quickRaf = 0
+          }
+          quickFoldNewWork()
+        }, 400)
+      }
+    }
+    // 整批折叠调度：MutationObserver 回调在浏览器**绘制之前**派发。切换会话 / 自动加载
+    // 历史时，DSH 会在同一批提交里一次性插入几十个 flowItem——若只靠防抖（哪怕 80ms），
+    // 历史回合仍会被画出来一两帧（「先展开再折叠」的闪现）。因此在 observer 回调内
+    // **同步**执行一次全量折叠（配防重入锁）：这批 DOM 在绘制之前就处于折叠态，
+    // 用户根本看不到展开过程。仅当大批量插入（≥阈值）或滚动容器切换时触发，避免每帧
+    // 全量扫描造成的卡顿；常规小批量增量仍走 quickFold + 防抖。
+    let burstScheduled = false
+    let burstFlowCount = 0
+    const BURST_FLOW_THRESHOLD = 6
+    const scheduleBurstFold = (): void => {
+      if (burstScheduled) return
+      burstScheduled = true
+      try {
+        applyCollapse()
+      } finally {
+        burstScheduled = false
+      }
+    }
+    const observer = new MutationObserver((muts) => {
+      // 统计本批新增的 flowItem 数量（用于判断是否「整批渲染」：切会话/加载历史）。
+      // 排除我们自身移入 vault 的节点（vault 是 body 下 display:none 容器），避免自反馈循环。
+      let addedFlow = 0
+      for (const m of muts) {
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue
+          const el = n as Element
+          if (el.parentElement !== null && el.parentElement.style && el.parentElement.style.display === 'none') continue
+          if (el.matches('.Md3f7G_flowItem')) addedFlow++
+          if (el.querySelectorAll) addedFlow += el.querySelectorAll('.Md3f7G_flowItem').length
+        }
+      }
+      // 快速折叠：最新回合已折叠时，新插入的处理过程元素尽快移入 vault（合并到下一帧执行）。
+      scheduleQuickFold()
+      // 检测滚动容器是否换了（切换会话）——换了则重置短防抖 + 触发整批折叠。
+      const curScroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+      const scrollSwitched = curScroll !== null && curScroll !== scrollBodyRef
+      if (scrollSwitched) {
+        scrollBodyRef = curScroll
+        debounceMs = FIRST_FRAME_DEBOUNCE_MS
+        burstFlowCount = 0
+      }
+      // 大批量插入（切会话 / 加载历史）：绘制前全量折叠一次，消除首屏闪现。
+      burstFlowCount += addedFlow
+      if (scrollSwitched || burstFlowCount >= BURST_FLOW_THRESHOLD) {
+        scheduleBurstFold()
+        burstFlowCount = 0
+      }
+      // 防抖兜底：常规小批量增量更新（虚拟滚动重挂、单条消息等）合并重扫。
       if (timer !== 0) return
       timer = window.setTimeout(() => {
         timer = 0
-        applyCollapse()
-      }, 500)
+        const scroll = document.querySelector<HTMLElement>('.wSkVaW_scrollBody')
+        if (scroll !== null) {
+          applyCollapse()
+          // 本次（短）防抖折叠完成后切到长防抖：历史回合已折叠，后续只是增量更新。
+          if (debounceMs === FIRST_FRAME_DEBOUNCE_MS) debounceMs = INCREMENTAL_DEBOUNCE_MS
+        }
+      }, debounceMs)
     })
     observer.observe(document.documentElement, { childList: true, subtree: true })
     // 滚动时虚拟滚动可能卸载/重挂行，轻量清理失联横条
@@ -631,9 +730,15 @@ export function applyMsgCollapse(ctx: ClientContext): void {
     document.addEventListener('scroll', onScroll, { capture: true, passive: true })
     return () => {
       if (timer !== 0) clearTimeout(timer)
+      if (quickRaf !== 0) cancelAnimationFrame(quickRaf)
+      if (quickTimer !== 0) clearTimeout(quickTimer)
+        // burst 折叠已排入微任务，会在本次任务结束前执行（幂等，卸载后无害）；
+        // 这里仅清标记，避免残留状态。
+        burstScheduled = false
       observer.disconnect()
       document.removeEventListener('scroll', onScroll, true)
       document.querySelectorAll(`.${BAR_CLASS}`).forEach((b) => b.remove())
+      scrollBodyRef = null
     }
   }, 'dsh-experience-plugin: msg-collapse')
 }

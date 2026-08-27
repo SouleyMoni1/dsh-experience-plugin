@@ -28,6 +28,7 @@ export const MODULES: ModuleInfo[] = [
   { id: 'msg-collapse', label: '消息折叠', description: '工作过程折叠横条，一键收起/展开' },
   { id: 'auto-load-history', label: '自动加载历史', description: '自动加载更早的对话历史' },
   { id: 'settings-page', label: '设置页全屏化', description: '设置弹窗改全屏页 + 背景不透明开关' },
+  { id: 'my-rules', label: '全局指令', description: '编辑此主机全局指令（~/.dsh/AGENTS.md）' },
 ]
 
 /**

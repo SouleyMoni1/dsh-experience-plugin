@@ -5,6 +5,7 @@
  *   - features/model-reasoning/大模型思考等级（自动注入 + 系列配置 + 自由配置）
  *   - features/cli-mimic/CLI 请求模拟（本地代理 + fetch 拦截 + 配置工具）
  *   - features/open-folder/侧边栏项目行「在文件夹中显示」（host 调系统文件管理器）
+ *   - features/my-rules/全局指令（读写 $DSH_HOME/AGENTS.md 的 RPC 通道）
  *
  * 插件配置示例（cordis.patch.yml 或 ~/.dsh/settings.yaml）：
  * ```yaml
@@ -30,6 +31,7 @@ import type { ModelReasoningConfig } from './features/model-reasoning/config.js'
 import { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS } from './features/model-reasoning/defaults.js'
 import { applyCliMimic } from './features/cli-mimic/host.js'
 import { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
+import { applyMyRules } from './features/my-rules/host.js'
 
 // 工具导出（测试 / 高级用法）：
 export { buildInjectionPatch } from './features/model-reasoning/ops.js'
@@ -39,6 +41,10 @@ export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, FAMILY_PRESETS, BUILTIN_FAMILY
 export type { ReasoningEfforts } from './features/model-reasoning/defaults.js'
 export { CLI_MIMIC_NS, Config as CliMimicConfig } from './features/cli-mimic/host.js'
 export { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
+export {
+  MY_RULES_RPC_CHANNEL, MY_RULES_RPC_READ, MY_RULES_RPC_WRITE,
+  dispatchMyRulesRpc, resolveDshHome, globalInstructionsPath,
+} from './features/my-rules/host.js'
 
 /** 插件配置：每个功能一段。 */
 export interface Config {
@@ -101,4 +107,5 @@ export function apply(ctx: Context, config: Config = {}): void {
   applyModelReasoning(ctx, config.modelReasoning)
   applyCliMimic(ctx as Parameters<typeof applyCliMimic>[0])
   applyOpenFolderHost(ctx, config.openFolder ?? { enabled: true })
+  applyMyRules(ctx)
 }

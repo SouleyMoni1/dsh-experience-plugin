@@ -1,6 +1,6 @@
 {
   "name": "dsh-experience-plugin",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "DSH plugin: model reasoning levels plus CLI request mimic, with a unified Daily Optimization settings section.",
   "type": "module",
   "main": "./lib/index.js",
@@ -79,7 +79,10 @@
     "model-reasoning",
     "reasoning-effort",
     "cli-mimic",
-    "settings"
+    "settings",
+    "my-rules",
+    "global-rules",
+    "instructions"
   ],
   "repository": {
     "type": "git",

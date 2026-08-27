@@ -17,7 +17,7 @@
 import { useState, type CSSProperties, type JSX } from 'react'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientConnectionRpc, IApiClient } from '@deepseek-ai/dsh-client-connection/client'
-import { ModelReasoningCard, CliMimicCard } from '../../settings/client/ExperienceSettingsCard.js'
+import { ModelReasoningCard, CliMimicCard, MyRulesCard } from '../../settings/client/ExperienceSettingsCard.js'
 import { OpaqueBgRow } from '../../settings-page/client/OpaqueBgRow.js'
 import { AutoLoadHistoryCard } from '../../auto-load-history/client/AutoLoadHistoryCard.js'
 import { ModuleTogglesList } from '../../module-toggles/client/ModuleTogglesList.js'
@@ -39,6 +39,8 @@ export interface DailyOptimizationSectionInjected {
   remote: ReasoningEditorInjected['remote']
   /** 模型思考等级编辑器文案（绑定 model-reasoning 命名空间）。 */
   mrT: TranslateNS<'model-reasoning'>
+  /** 全局指令编辑器文案（绑定 my-rules 命名空间）。 */
+  myRulesT: TranslateNS<'my-rules'>
 }
 
 const sectionStyle: CSSProperties = {
@@ -118,7 +120,7 @@ type TabId = 'settings' | 'modules'
  * @returns 分区元素树。
  */
 export function DailyOptimizationSection(props: DailyOptimizationSectionProps): JSX.Element {
-  const { t, api, rpc, remote, mrT } = props
+  const { t, api, rpc, remote, mrT, myRulesT } = props
   const [active, setActive] = useState<TabId>('settings')
   const [moduleStates, setModuleStates] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {}
@@ -142,6 +144,7 @@ export function DailyOptimizationSection(props: DailyOptimizationSectionProps): 
     { id: 'cli-mimic', node: <CliMimicCard api={api} disabled={!moduleStates['cli-mimic']} /> },
     { id: 'settings-page', node: <OpaqueBgRow disabled={!moduleStates['settings-page']} /> },
     { id: 'auto-load-history', node: <AutoLoadHistoryCard disabled={!moduleStates['auto-load-history']} /> },
+    { id: 'my-rules', node: <MyRulesCard rpc={rpc} t={myRulesT} disabled={!moduleStates['my-rules']} /> },
   ]
   const settingsCardIds = sortModuleIds(settingsCards.map((c) => c.id), moduleStates)
 

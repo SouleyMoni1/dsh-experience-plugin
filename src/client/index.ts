@@ -16,6 +16,7 @@ import { applyMsgCollapse } from '../features/msg-collapse/client/index.js'
 import { applyAutoLoadHistory } from '../features/auto-load-history/client/index.js'
 import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { applyDailyOptimization } from '../features/daily-optimization/client/index.js'
+import { applyMyRulesClient } from '../features/my-rules/client/index.js'
 import { isModuleEnabled } from '../features/module-toggles/client/index.js'
 
 /**
@@ -44,6 +45,8 @@ export function apply(ctx: ClientContext): void {
   if (isModuleEnabled('auto-load-history')) applyAutoLoadHistory(ctx)
   // 官方设置弹窗 → 全屏设置页：几何覆盖，不改官方槽架构。
   if (isModuleEnabled('settings-page')) applySettingsPage(ctx)
+  // 全局指令（My Rules）：注册文案，UI 挂载在「日用优化」分区。
+  if (isModuleEnabled('my-rules')) applyMyRulesClient(ctx)
 
   // 设置页「日用优化」分区：集中承载全部配置 UI（插件设置 + 模块开关两个页签）。
   // 分区始终注册（即使某模块被关闭，开关页签仍要能重新打开它）。

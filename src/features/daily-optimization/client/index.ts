@@ -32,6 +32,7 @@ export function applyDailyOptimization(ctx: ClientContext): void {
   const api = connection?.api as Pick<IApiClient, 'settings'> | undefined
   const remote = ctx.remote as unknown as ReasoningEditorInjected['remote']
   const mrT = ctx.locale.bind('model-reasoning')
+  const myRulesT = ctx.locale.bind('my-rules')
 
   ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
@@ -39,6 +40,6 @@ export function applyDailyOptimization(ctx: ClientContext): void {
     order: SECTION_ORDER,
     label: () => ctx.locale.bind(NS)('nav'),
     locale: NS,
-    inject: () => ({ api, rpc: connection?.rpc, remote, mrT }),
+    inject: () => ({ api, rpc: connection?.rpc, remote, mrT, myRulesT }),
   }, DailyOptimizationSection)), 'dsh-experience-plugin: daily-optimization section')
 }

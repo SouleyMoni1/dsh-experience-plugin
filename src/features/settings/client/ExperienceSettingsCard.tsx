@@ -9,6 +9,7 @@ import type { CSSProperties } from 'react'
 import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ReasoningEditor } from '../../model-reasoning/client/ReasoningEditor.js'
 import { CliMimicEditor } from '../../cli-mimic/client/CliMimicEditor.js'
+import { MyRulesEditor } from '../../my-rules/client/MyRulesEditor.js'
 
 interface ModuleCardProps {
   title: string
@@ -146,6 +147,22 @@ export function CliMimicCard(props: CliMimicCardProps): any {
   return (
     <ModuleCard title="CLI 请求模拟" description="本地代理 + fetch 拦截，把 DSH 请求伪装成 CLI 客户端" disabled={disabled}>
       <CliMimicEditor api={api} />
+    </ModuleCard>
+  )
+}
+
+export interface MyRulesCardProps {
+  rpc: any
+  t: any
+  /** 禁用态（模块关闭时）。 */
+  disabled?: boolean
+}
+
+export function MyRulesCard(props: MyRulesCardProps): any {
+  const { rpc, t, disabled } = props
+  return (
+    <ModuleCard title={t('nav')} description={t('cardDescription')} disabled={disabled}>
+      <MyRulesEditor rpc={rpc} t={t} />
     </ModuleCard>
   )
 }

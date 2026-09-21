@@ -32,19 +32,38 @@ import { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS } from './features/model-reason
 import { applyCliMimic } from './features/cli-mimic/host.js'
 import { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
 import { applyMyRules } from './features/my-rules/host.js'
+import { applyMcpManager } from './features/mcp-manager/host.js'
+import { applySkillManager } from './features/skill-manager/host.js'
+import { applyModelParamsHost } from './features/model-params/host.js'
+import { applyExperienceRpc } from './features/rpc-channel.js'
 
 // 工具导出（测试 / 高级用法）：
-export { buildInjectionPatch } from './features/model-reasoning/ops.js'
+export { buildInjectionPatch, resolveEffortsForModel, resolveModalitiesForModel } from './features/model-reasoning/ops.js'
 export { MODEL_REASONING_NS, ModelReasoningSettingsSchema } from './features/model-reasoning/settings.js'
 export { MR_RPC_CHANNEL, MR_RPC_GET, MR_RPC_WRITE, dispatchMrRpc } from './features/model-reasoning/remote.js'
-export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, FAMILY_PRESETS, BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS } from './features/model-reasoning/defaults.js'
-export type { ReasoningEfforts } from './features/model-reasoning/defaults.js'
+export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, FAMILY_PRESETS, BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS, MODALITIES, normalizeModalities, modalitiesEqual } from './features/model-reasoning/defaults.js'
+export type { ReasoningEfforts, ModelModality } from './features/model-reasoning/defaults.js'
 export { CLI_MIMIC_NS, Config as CliMimicConfig } from './features/cli-mimic/host.js'
 export { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
 export {
   MY_RULES_RPC_CHANNEL, MY_RULES_RPC_READ, MY_RULES_RPC_WRITE,
   dispatchMyRulesRpc, resolveDshHome, globalInstructionsPath,
 } from './features/my-rules/host.js'
+export {
+  MCP_MANAGER_RPC_CHANNEL, MCP_MANAGER_LIST, MCP_MANAGER_ADD, MCP_MANAGER_IMPORT, MCP_MANAGER_TOGGLE, MCP_MANAGER_PATCH,
+  applyMcpManager, dispatchMcpManagerRpc, validateServerInput, parseServerJson, isValidServerName,
+  collectInstalledMcpServers, mcpServerOfToolName,
+} from './features/mcp-manager/host.js'
+export {
+  applyPatchRemoval, applyPatchToggle, patchFileDefinesEntry, patchIdOf, resolveProfilePatchFile,
+} from './features/mcp-manager/patch-file.js'
+export { MCP_MANAGER_NS, McpManagerSettingsSchema } from './features/mcp-manager/settings.js'
+export type { ManagedMcpServer, McpManagerSettings } from './features/mcp-manager/settings.js'
+export type { InstalledMcpServer, McpManagerView } from './features/mcp-manager/host.js'
+export {
+  SKILL_MANAGER_RPC_CHANNEL, SKILL_MANAGER_LIST, SKILL_MANAGER_TOGGLE, SKILL_MANAGER_ADD, SKILL_MANAGER_IMPORT,
+  applySkillManager, dispatchSkillManagerRpc, isValidSkillName, skillsRoot,
+} from './features/skill-manager/host.js'
 
 /** 插件配置：每个功能一段。 */
 export interface Config {
@@ -93,7 +112,7 @@ export const Config = z.object({
 }) as unknown as z<Config>
 
 /** 本插件需要的服务（各功能服务的并集）。 */
-export const inject = ['settings', 'tools', 'credentials', 'llm', 'webServer', 'workspaceRegistry'] as const
+export const inject = ['settings', 'tools', 'credentials', 'llm', 'webServer', 'workspaceRegistry', 'connection'] as const
 
 /** 插件名（日志与诊断用）。 */
 export const name = 'dsh-experience-plugin'
@@ -104,8 +123,14 @@ export const name = 'dsh-experience-plugin'
  * @param config - 插件配置（按功能分段）。
  */
 export function apply(ctx: Context, config: Config = {}): void {
+  // 唯一的浏览器 ↔ host RPC 入口（各功能把自己的逻辑通道登记进来）。
+  applyExperienceRpc(ctx)
   applyModelReasoning(ctx, config.modelReasoning)
+  applyModelParamsHost(ctx)
   applyCliMimic(ctx as Parameters<typeof applyCliMimic>[0])
   applyOpenFolderHost(ctx, config.openFolder ?? { enabled: true })
   applyMyRules(ctx)
+  // MCP / Skills 管理：各自的 settings / RPC 通道由模块内部注册（不依赖插件级 config 段）。
+  applyMcpManager(ctx)
+  applySkillManager(ctx)
 }

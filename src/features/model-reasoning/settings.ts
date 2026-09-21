@@ -11,7 +11,7 @@
  */
 import z from '@deepseek-ai/schemastery'
 import type { ReasoningEfforts, FamilyRule } from './defaults.js'
-import { BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS } from './defaults.js'
+import { BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS, MODALITIES } from './defaults.js'
 
 /** 当前系列配置命名空间（对外包名 dsh-experience-plugin）。 */
 export const MODEL_REASONING_NS = 'dsh-experience-plugin'
@@ -29,6 +29,8 @@ export const FamilyRuleSchema = z.object({
   pattern: z.string(),
   // key 限定在 THINKING_LEVELS 内；value 为 wire 字符串或 null（仅 off）
   efforts: z.dict(z.union([z.string(), z.const(null)]), z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const)),
+  // 输入模态（text / image）。默认空表 = 不注入模态，保持 pi-ai 目录原样。
+  input: z.array(z.union(MODALITIES)).default([]),
 }) as unknown as z<FamilyRule>
 
 /** 命名空间整体 schema。 */

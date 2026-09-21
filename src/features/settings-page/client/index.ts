@@ -17,7 +17,7 @@
  * （注册进通用设置区），开启时把 layer-2 的实际计算色去掉 alpha 强制不透明，
  * 覆盖其他插件设置的透明效果；关闭时完全跟随皮肤/主题。
  *
- * 实现方式（纯 DOM 增强，零布局侵入，复刻 timeline-rail / msg-collapse 先例）：
+ * 实现方式（纯 DOM 增强，零布局侵入）：
  *  - MutationObserver 监听 document，捕获官方 `role="dialog"` 面板挂载；
  *  - 用 `aria-labelledby` 指向的标题文本（「设置」/「Settings」）精确判定官方设置
  *    面板，避免误伤页面内其他模态对话框（全权限确认、文件错误提示等）；

@@ -16,8 +16,15 @@
  *   4. FALLBACK_EFFORTS 兜底。
  * 已声明 reasoningEfforts 的模型默认不覆盖；若它恰等于旧版注入的统一默认
  * 表（插件注入过的旧值），则升级为新预设（`upgradeLegacy` 可关）。
+ *
+ * 除等级外，这里还负责补写模型的输入模态 `input`（pi-ai 的 text/image）：
+ * DSH 判断"能否收图"只看目录里的 `inputModalities`，而自定义网关（edenai
+ * 这类中转）的 /v1/models 不公布能力元数据、pi-ai 内置目录里也没有这些路由，
+ * 于是模态落到路由级 defaultInput（默认 ['text']），能识图的模型被当成纯文本，
+ * 发图时报 "当前模型不支持图片"。规则与等级一致但**更保守**：只在模型完全
+ * 没声明 `input` 时补，且只有系列显式给出模态才补——缺省零注入。
  */
-import type { ReasoningEfforts, FamilyPreset } from './defaults.js'
+import type { ReasoningEfforts, FamilyPreset, ModelModality } from './defaults.js'
 import {
   DEFAULT_EFFORTS_BY_API,
   FALLBACK_EFFORTS,
@@ -25,6 +32,7 @@ import {
   INJECTABLE_APIS,
   LEGACY_UNIFORM_EFFORTS,
   matchFamilyPreset,
+  normalizeModalities,
 } from './defaults.js'
 
 /** 用户设置段里一个 provider 条目的最小形状（我们只读 api/models 两个字段）。 */
@@ -36,6 +44,8 @@ export interface PiAiProviderSection {
 /** 用户设置段里一个模型条目的最小形状。 */
 export interface PiAiModelSection {
   reasoningEfforts?: unknown
+  /** pi-ai 的输入模态；schema 会把缺省物化成 `[]`（等价于未声明）。 */
+  input?: unknown
 }
 
 /** buildInjectionPatch 的选项。 */
@@ -65,7 +75,7 @@ export interface InjectionPatch {
 export interface InjectionResult {
   /** 待写入的深合并 patch（changed === 0 时为空对象）。 */
   patch: InjectionPatch
-  /** 实际注入/升级的模型数。 */
+  /** 实际注入/升级的模型数（等级与模态任一被写入即计数）。 */
   changed: number
 }
 
@@ -105,12 +115,35 @@ export function resolveEffortsForModel(
 }
 
 /**
- * 计算需要写入的 reasoningEfforts 合并 patch。
+ * 计算一个模型应当声明的输入模态。
+ *
+ * 与等级不同，模态没有协议级/全局兜底：只有系列（用户预设或内置知识库）
+ * 显式给出 `input` 时才有值，否则返回 undefined = 不注入。这样"没配过"
+ * 与"配成纯文本"是两回事，升级插件不会改变既有模型的能力声明。
+ * @param modelId - 模型 id。
+ * @param options - 注入选项。
+ * @returns 模态表（text 在前）；系列未声明模态时返回 undefined。
+ */
+export function resolveModalitiesForModel(
+  modelId: string,
+  options: InjectionOptions,
+): ModelModality[] | undefined {
+  const presets = [
+    ...(options.familyPresets ?? []),
+    ...(options.includeBuiltinFamilies === false ? [] : FAMILY_PRESETS),
+  ]
+  const hit = matchFamilyPreset(modelId, presets)
+  return normalizeModalities(hit?.input)
+}
+
+/**
+ * 计算需要写入的 reasoningEfforts / input 合并 patch。
  *
  * 规则：
  *   - 只处理 api 在白名单内的 provider（默认 openai 系协议）；
- *   - 只补 models 里缺失 reasoningEfforts 的条目（已声明——含 false——绝不覆盖，
- *     除非它是旧版注入的统一默认值且 upgradeLegacy 开启，此时升级为族预设）；
+ *   - 等级：只补 models 里缺失 reasoningEfforts 的条目（已声明——含 false——绝不
+ *     覆盖，除非它是旧版注入的统一默认值且 upgradeLegacy 开启，此时升级为族预设）；
+ *   - 模态：只补 models 里未声明 input 的条目，且系列必须显式给出模态；
  *   - 其余字段（name / contextWindow / maxTokens / apiKeyEnv / baseURL …）原样保留。
  * @param providers - `llm-pi-ai.providers` 原始用户段。
  * @param options - 注入选项。
@@ -143,11 +176,24 @@ export function buildInjectionPatch(
       const isLegacy = upgradeLegacy
         && typeof existing === 'object' && existing !== null && !Array.isArray(existing)
         && effortsEqual(existing as ReasoningEfforts, LEGACY_UNIFORM_EFFORTS)
-      if (existing !== undefined && !isLegacy) continue
-      if (isLegacy && effortsEqual(desired, LEGACY_UNIFORM_EFFORTS)) continue
+
+      // 等级：已声明（含 false）不覆盖；仅旧版注入值在 upgradeLegacy 时升级。
+      const writeEfforts = (existing === undefined || isLegacy)
+        && !(isLegacy && effortsEqual(desired, LEGACY_UNIFORM_EFFORTS))
+
+      // 模态：只在模型完全没声明 input 时补。schema 会把缺省物化成 `[]`，
+      // 空表等价于未声明，因此这里连同空表一起视为"没配"。
+      const desiredInput = resolveModalitiesForModel(modelId, options)
+      const declaredInput = normalizeModalities(entry.input)
+      const writeInput = desiredInput !== undefined && declaredInput === undefined
+
+      if (!writeEfforts && !writeInput) continue
 
       if (merged === undefined) merged = structuredClone(models)
-      merged[index] = { ...(merged[index] as object), reasoningEfforts: desired }
+      const next: Record<string, unknown> = { ...(merged[index] as Record<string, unknown>) }
+      if (writeEfforts) next.reasoningEfforts = desired
+      if (writeInput) next.input = desiredInput
+      merged[index] = next
       changed++
     }
     if (merged !== undefined) patch.providers[route] = { models: merged }

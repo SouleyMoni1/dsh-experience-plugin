@@ -11,8 +11,6 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { applyModelReasoningClient } from '../features/model-reasoning/client/index.js'
 import { applyOpenFolder } from '../features/open-folder/client/index.js'
-import { applyTimelineRail } from '../features/timeline-rail/client/index.js'
-import { applyMsgCollapse } from '../features/msg-collapse/client/index.js'
 import { applyAutoLoadHistory } from '../features/auto-load-history/client/index.js'
 import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { applyDailyOptimization } from '../features/daily-optimization/client/index.js'
@@ -24,7 +22,7 @@ import { isModuleEnabled } from '../features/module-toggles/client/index.js'
  * slots：注册 UI slot（设置页分区）；locale：双语文案；connection：wire API；
  * remote：接收 host 推送的失效事件；workspaces：侧边栏「打开文件夹」入口。
  */
-export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'workspaces']
+export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'workspaces', 'settingsScope']
 
 /** 插件名（client 运行时诊断用）。 */
 export const name = 'dsh-experience-plugin-client'
@@ -34,19 +32,19 @@ export const name = 'dsh-experience-plugin-client'
  * @param ctx - 浏览器侧 client 上下文。
  */
 export function apply(ctx: ClientContext): void {
+  // 文案字典必须**无条件注册**，与模块开关解耦：
+  // 「日用优化」分区里的配置卡片无论模块开没开都会渲染（关掉只是置灰），
+  // 而 locale 查不到词条时会原样返回 key（dsh-client-locale translate 的 `?? key`），
+  // 一旦字典没注册，卡片标题就会显示成字面的 "nav"。
+  applyModelReasoningClient(ctx)
+  applyMyRulesClient(ctx)
+
   // 各功能模块按「模块开关」独立启停（默认全部开启，与旧行为一致）。
-  if (isModuleEnabled('model-reasoning')) applyModelReasoningClient(ctx)
   if (isModuleEnabled('open-folder')) applyOpenFolder(ctx, ctx.workspaces)
-  // 对话页左侧「消息时间轴标记条」：纯 DOM 浮层，只依赖官方滚动容器与消息行。
-  if (isModuleEnabled('timeline-rail')) applyTimelineRail(ctx)
-  // 会话消息回合折叠：用户消息 + AI 工作过程可收起，只留 AI 最终回复。
-  if (isModuleEnabled('msg-collapse')) applyMsgCollapse(ctx)
   // 自动加载更早的对话历史：独立模块，条数可在设置页「日用优化」分区配置。
   if (isModuleEnabled('auto-load-history')) applyAutoLoadHistory(ctx)
   // 官方设置弹窗 → 全屏设置页：几何覆盖，不改官方槽架构。
   if (isModuleEnabled('settings-page')) applySettingsPage(ctx)
-  // 全局指令（My Rules）：注册文案，UI 挂载在「日用优化」分区。
-  if (isModuleEnabled('my-rules')) applyMyRulesClient(ctx)
 
   // 设置页「日用优化」分区：集中承载全部配置 UI（插件设置 + 模块开关两个页签）。
   // 分区始终注册（即使某模块被关闭，开关页签仍要能重新打开它）。

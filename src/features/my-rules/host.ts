@@ -12,8 +12,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { Context } from '@deepseek-ai/cordis'
-import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
-import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ConnectionRpcResult as RpcResult } from '@deepseek-ai/dsh-client-connection'
+import { provideRpcChannel } from '../rpc-channel.js'
 
 /** dsh-base 为 dsh-agent-instructions 配置的指令预算（maxBytes: 65536）。 */
 const INSTRUCTION_BUDGET_BYTES = 65536
@@ -152,25 +152,12 @@ export async function dispatchMyRulesRpc(endpoint: string, payload: unknown): Pr
 }
 
 /**
- * 注册全局指令 RPC 通道。
- * @param ctx - host 插件上下文（需要 connection 服务）。
- * @returns 卸载函数；connection 服务缺席（如测试环境）返回 undefined。
- */
-export function applyMyRulesRemote(ctx: Context): (() => Promise<void>) | undefined {
-  const connection = ctx.get('connection') as HostConnectionHandle | undefined
-  if (connection === undefined) return undefined
-  return connection.rpc.handle(MY_RULES_RPC_CHANNEL, (endpoint: string, payload: unknown) => {
-    return dispatchMyRulesRpc(endpoint, payload)
-  }, { authority: 'loopback' })
-}
-
-/**
  * 装配 my-rules host 半区。
  * @param ctx - host 插件上下文。
  */
 export function applyMyRules(ctx: Context): void {
-  const dispose = applyMyRulesRemote(ctx)
-  if (dispose !== undefined) {
-    ctx.effect(() => () => { void dispose() }, 'my-rules: rpc channel')
-  }
+  ctx.effect(
+    () => provideRpcChannel(MY_RULES_RPC_CHANNEL, (endpoint, payload) => dispatchMyRulesRpc(endpoint, payload)),
+    'my-rules: rpc channel',
+  )
 }

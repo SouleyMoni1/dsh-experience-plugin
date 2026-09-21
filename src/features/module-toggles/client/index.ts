@@ -1,12 +1,11 @@
 /**
  * module-toggles —— browser 半区：每个功能模块的独立启停开关。
  *
- * 插件目前有 6 个功能模块，其中纯 client 模块（时间轴 / 折叠 / 设置页全屏化）
- * 随插件自动启用、没有配置开关；host 模块（模型思考等级 / CLI 模拟 / 打开文件夹）
- * 的 enabled 在插件配置里。本模块在设置页「日用优化」分区提供「模块开关」页签，
+ * 插件的功能模块各有独立启停开关；纯 client 模块（设置页全屏化、自动加载历史）
+ * 随插件自动启用，host 模块（模型思考等级 / CLI 模拟 / 打开文件夹）的 enabled
+ * 在插件配置里。本模块在设置页「日用优化」分区提供「模块开关」页签，
  * 列出全部模块，每个一个开关，状态持久化在 localStorage：
- *  - 关闭某模块 → 该模块的浏览器侧功能不再装配（时间轴不显示、折叠不生效、
- *    设置页保持弹窗、配置卡片不注册等）；
+ *  - 关闭某模块 → 该模块的浏览器侧功能不再装配（设置页保持弹窗、配置卡片置灰等）；
  *  - 默认全部开启，与旧行为一致。
  *
  * 装配侧（src/client/index.ts）通过 isModuleEnabled(id) 决定是否 apply 各模块。
@@ -21,14 +20,13 @@ export interface ModuleInfo {
 }
 
 export const MODULES: ModuleInfo[] = [
-  { id: 'model-reasoning', label: '模型思考等级', description: '为自定义 API 模型注入推理等级' },
+  { id: 'model-reasoning', label: '模型思考等级', description: '为自定义 API 模型注入推理等级与输入能力' },
   { id: 'cli-mimic', label: 'CLI 请求模拟', description: '把 DSH 模型请求伪装成 CLI 客户端' },
   { id: 'open-folder', label: '打开文件夹', description: '工作区行菜单打开项目目录' },
-  { id: 'timeline-rail', label: '消息时间轴', description: '对话页左侧消息标记条 + 预览' },
-  { id: 'msg-collapse', label: '消息折叠', description: '工作过程折叠横条，一键收起/展开' },
   { id: 'auto-load-history', label: '自动加载历史', description: '自动加载更早的对话历史' },
   { id: 'settings-page', label: '设置页全屏化', description: '设置弹窗改全屏页 + 背景不透明开关' },
   { id: 'my-rules', label: '全局指令', description: '编辑此主机全局指令（~/.dsh/AGENTS.md）' },
+  { id: 'model-params', label: '模型参数', description: '按 Provider / 模型手动覆盖请求参数' },
 ]
 
 /**

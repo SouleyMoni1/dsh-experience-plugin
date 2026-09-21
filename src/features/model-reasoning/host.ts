@@ -20,21 +20,21 @@
  * 都会重新扫描，删除 reasoningEfforts 的模型会被重新补上。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { ModelReasoningConfig } from './config.js'
 import type { FamilyPreset } from './defaults.js'
 import { buildInjectionPatch } from './ops.js'
 import type { FamilyRule, ReasoningEfforts } from './defaults.js'
 import type { ModelReasoningSettings } from './settings.js'
 import { LEGACY_MODEL_REASONING_NS, MODEL_REASONING_NS, ModelReasoningSettingsSchema } from './settings.js'
-import { applyModelReasoningRemote } from './remote.js'
+import { provideRpcChannel } from '../rpc-channel.js'
+import { dispatchMrRpc, MR_RPC_CHANNEL } from './remote.js'
 
 export type { ModelReasoningConfig } from './config.js'
-export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS } from './defaults.js'
+export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, MODALITIES } from './defaults.js'
 export { MODEL_REASONING_NS, ModelReasoningSettingsSchema } from './settings.js'
 
 /** dsh-llm-pi-ai 注册的用户设置命名空间。 */
-const LLM_PI_AI_NS = settingsNamespace('llm-pi-ai')
+const LLM_PI_AI_NS = 'llm-pi-ai'
 
 /** 变更后重新扫描的防抖间隔。 */
 const RESCAN_DEBOUNCE_MS = 500
@@ -58,17 +58,17 @@ export function applyModelReasoning(ctx: Context, config: ModelReasoningConfig =
   // 热重载时旧 fiber 自动注销，同 fiber 重复注册会抛错，忽略即可。
   for (const ns of [MODEL_REASONING_NS, LEGACY_MODEL_REASONING_NS]) {
     try {
-      ctx.settings.register(settingsNamespace(ns), ModelReasoningSettingsSchema, {})
+      ctx.settings.register(ns, ModelReasoningSettingsSchema, {})
     } catch (error) {
       ctx.logger('model-reasoning').debug('namespace %s already registered: %s', ns, (error as Error).message)
     }
   }
 
-  // client 设置页的系列配置读写通道（connection 服务缺席时跳过，如测试环境）。
-  const disposeRemote = applyModelReasoningRemote(ctx)
-  if (disposeRemote !== undefined) {
-    ctx.effect(() => () => { void disposeRemote() }, 'model-reasoning: rpc channel')
-  }
+  // client 设置页的系列配置读写通道（登记到本插件唯一的 RPC 入口路由）。
+  ctx.effect(
+    () => provideRpcChannel(MR_RPC_CHANNEL, (endpoint, payload) => dispatchMrRpc(ctx, endpoint, payload)),
+    'model-reasoning: rpc channel',
+  )
 
   const logger = ctx.logger('model-reasoning')
   const timers = new Set<NodeJS.Timeout>()
@@ -165,6 +165,7 @@ async function injectMissingEfforts(ctx: Context, config: ModelReasoningConfig):
         pattern: new RegExp(rule.pattern, 'i'),
         label: rule.label,
         efforts: rule.efforts,
+        input: rule.input,
       })) : []),
   ]
   const { patch, changed } = buildInjectionPatch(user.providers, {
@@ -199,7 +200,7 @@ async function migrateLegacySettings(ctx: Context): Promise<void> {
   if (!Array.isArray(legacyUser?.families) || legacyUser.families.length === 0) return
 
   await ctx.settings.update(
-    settingsNamespace(MODEL_REASONING_NS),
+    MODEL_REASONING_NS,
     {
       defaultEfforts: legacyUser.defaultEfforts ?? { off: null, low: 'low', medium: 'medium', high: 'high' },
       families: legacyUser.families,

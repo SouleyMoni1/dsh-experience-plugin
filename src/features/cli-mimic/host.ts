@@ -14,7 +14,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type ToolRegistry from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { settingsNamespace, type SettingsProvider } from '@deepseek-ai/dsh-settings'
+import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import {
   createCustomProfile,
@@ -91,7 +91,7 @@ export const Config = z.object({
 
 const DEFAULT_USER_AGENT = 'codex_cli_rs/0.148.0 (Windows 10.0; x86_64) WindowsTerminal'
 const DEFAULT_ORIGINATOR = 'codex_cli_rs'
-export const CLI_MIMIC_NS = settingsNamespace('cli-mimic')
+export const CLI_MIMIC_NS = 'cli-mimic'
 
 interface RuntimeConfig {
   enabled: boolean

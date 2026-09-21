@@ -17,6 +17,8 @@ interface ModuleCardProps {
   defaultOpen?: boolean
   /** 禁用态：灰色显示、不可展开（模块关闭时用）。 */
   disabled?: boolean
+  /** 裸渲染：跳过卡片外壳，直接渲染 children（作为独立选项卡页面时用）。 */
+  bare?: boolean
   children: ReactNode
 }
 
@@ -87,8 +89,9 @@ const bodyStyle: CSSProperties = {
   padding: '14px 0 8px',
 }
 
-export function ModuleCard({ title, description, defaultOpen = false, disabled = false, children }: ModuleCardProps): any {
+export function ModuleCard({ title, description, defaultOpen = false, disabled = false, bare = false, children }: ModuleCardProps): any {
   const [open, setOpen] = useState(defaultOpen)
+  if (bare) return <>{children}</>
 
   const baseStyle = disabled
     ? { ...cardStyle, ...cardDisabledStyle }

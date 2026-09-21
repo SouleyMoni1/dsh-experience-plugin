@@ -8,9 +8,7 @@
  * client 经 `connection.rpc.call` 调用，host 端在此读写本插件的命名空间。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import type { HostConnectionHandle } from '@deepseek-ai/dsh-client-connection'
-import type { RpcResult } from '@deepseek-ai/dsh-host-apiproxy/api'
+import type { ConnectionRpcResult as RpcResult } from '@deepseek-ai/dsh-client-connection'
 import type { FamilyRule, ReasoningEfforts } from './defaults.js'
 import type { ModelReasoningSettings } from './settings.js'
 import { MODEL_REASONING_NS } from './settings.js'
@@ -70,7 +68,7 @@ async function handleWrite(ctx: Context, payload: unknown): Promise<RpcResult<{ 
   if (descriptor === undefined) return rpcError('model-reasoning settings namespace is not registered')
   try {
     await ctx.settings.update(
-      settingsNamespace(MODEL_REASONING_NS),
+      MODEL_REASONING_NS,
       { defaultEfforts: body.defaultEfforts ?? {}, families: body.families },
       descriptor.revision,
     )
@@ -90,18 +88,4 @@ export async function dispatchMrRpc(ctx: Context, endpoint: string, payload: unk
   if (endpoint === MR_RPC_GET) return handleGet(ctx)
   if (endpoint === MR_RPC_WRITE) return handleWrite(ctx, payload)
   return rpcError('unknown model-reasoning endpoint: ' + endpoint)
-}
-
-/**
- * 注册系列配置 RPC 通道。
- * @param ctx - host 插件上下文（需要 settings + connection 服务）。
- * @returns 卸载函数；connection 服务缺席（如测试环境）返回 undefined。
- */
-export function applyModelReasoningRemote(ctx: Context): (() => Promise<void>) | undefined {
-  const connection = ctx.get('connection') as HostConnectionHandle | undefined
-  if (connection === undefined) return undefined
-  const dispose = connection.rpc.handle(MR_RPC_CHANNEL, (endpoint: string, payload: unknown) => {
-    return dispatchMrRpc(ctx, endpoint, payload)
-  }, { authority: 'loopback' })
-  return dispose
 }

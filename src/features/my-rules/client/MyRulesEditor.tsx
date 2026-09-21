@@ -11,7 +11,7 @@
  */
 import { useEffect, useState, type CSSProperties, type JSX } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ClientConnectionRpc } from '@deepseek-ai/dsh-client-connection/client'
+import type { ExperienceRpc } from '../../../client/rpc-transport.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MyRulesLocaleKey } from './locales.js'
 
@@ -114,7 +114,7 @@ const docUrl = 'https://github.com/deepseek-ai/dsh-agent-instructions'
 /** 编辑器注入面（register 的 inject 工厂返回值）。 */
 export interface MyRulesEditorInjected {
   /** 通用 RPC 通道（host 端 connection.rpc）。 */
-  rpc: ClientConnectionRpc | undefined
+  rpc: ExperienceRpc | undefined
   /** 文案（绑定 my-rules 命名空间）。 */
   t: TranslateNS<'my-rules'>
 }

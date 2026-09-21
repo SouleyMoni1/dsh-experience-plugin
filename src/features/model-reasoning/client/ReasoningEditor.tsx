@@ -1,18 +1,20 @@
 /**
- * model-reasoning 设置页 —— 模型思考等级编辑器。
+ * model-reasoning 设置页 —— 模型思考等级 + 输入能力编辑器。
  *
- * 两块内容：
- *   1. 系列配置：默认兜底等级 + 系列规则（id / 名称 / 关键词正则 / 等级），
+ * 三块内容：
+ *   1. 系列配置：默认兜底等级 + 系列规则（id / 名称 / 关键词正则 / 等级 / 输入模态），
  *      存到本插件的 settings 命名空间（dsh-experience-plugin），schema 默认值 =
  *      内置知识库，所以首次打开即为完整内置列表，可编辑、可增删。
  *   2. 模型等级：llm-pi-ai 下每个模型的等级开关（可折叠），保存时整体写回。
+ *   3. 模型输入能力：每个模型的「文字 / 视觉」声明，写入 llm-pi-ai 的 `input`。
  *
  * 数据流与官方 Models 页一致：settings.describe → 编辑 → settings.update
  * 深合并 patch（数组整体替换、其余字段保留、revision 冲突保护）。
  */
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ClientConnectionRpc, IApiClient } from '@deepseek-ai/dsh-client-connection/client'
+import type { ExperienceRpc } from '../../../client/rpc-transport.js'
+import type { SettingsAccess } from '../../../client/settings-access.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { FamilyRule } from '../defaults.js'
 import type { ModelReasoningLocaleKey } from './locales.js'
@@ -26,6 +28,10 @@ export interface RemoteEventSink {
 export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
 
+/** pi-ai 的输入模态（与 host 端 MODALITIES 一致）。 */
+export const MODALITIES = ['text', 'image'] as const
+export type ModelModality = (typeof MODALITIES)[number]
+
 /** 等级 → 文案键（保持 t() 的键为字面量）。 */
 const LEVEL_KEY: Record<ThinkingLevel, ModelReasoningLocaleKey> = {
   off: 'levelOff',
@@ -35,6 +41,12 @@ const LEVEL_KEY: Record<ThinkingLevel, ModelReasoningLocaleKey> = {
   high: 'levelHigh',
   xhigh: 'levelXhigh',
   max: 'levelMax',
+}
+
+/** 模态 → 文案键。 */
+const MODALITY_KEY: Record<ModelModality, ModelReasoningLocaleKey> = {
+  text: 'modalityText',
+  image: 'modalityImage',
 }
 
 /** 一个模型条目的编辑状态。 */
@@ -47,8 +59,36 @@ interface ModelDraft {
   raw: Record<string, unknown>
   /** 每个等级的开关与 wire。 */
   efforts: Partial<Record<ThinkingLevel, { enabled: boolean; wire: string }>>
+  /** 输入模态声明；空数组 = 未声明（不写入 input）。 */
+  input: ModelModality[]
   /** 命中的系列（id + 显示名）。 */
   family?: { id: string; label: string }
+}
+
+/** 收敛任意值为合法模态表（去重、text 在前）；空表 / 非法值 → 空数组 = 未声明。 */
+function normalizeModalities(value: unknown): ModelModality[] {
+  if (!Array.isArray(value)) return []
+  const seen = new Set<ModelModality>()
+  for (const item of value) {
+    if (typeof item === 'string' && (MODALITIES as readonly string[]).includes(item)) seen.add(item as ModelModality)
+  }
+  return MODALITIES.filter((modality) => seen.has(modality))
+}
+
+/**
+ * 切换一个模态。视觉蕴含文字：勾「视觉」自动带上「文字」（纯图片模型没有意义），
+ * 取消「文字」则一并取消「视觉」。全部取消 = 回到未声明状态。
+ */
+function toggleModality(list: readonly ModelModality[], modality: ModelModality): ModelModality[] {
+  const next = new Set(list)
+  if (next.has(modality)) {
+    next.delete(modality)
+    if (modality === 'text') next.delete('image')
+  } else {
+    next.add(modality)
+    if (modality === 'image') next.add('text')
+  }
+  return MODALITIES.filter((item) => next.has(item))
 }
 
 /** 从设置段还原一个模型的等级表。 */
@@ -102,9 +142,9 @@ function effortsValue(state: ModelDraft['efforts']): Record<string, string | nul
 
 /** 编辑器注入面（register 的 inject 工厂返回值）。 */
 export interface ReasoningEditorInjected {
-  api: Pick<IApiClient, 'settings'> | undefined
+  api: SettingsAccess | undefined
   /** 系列配置 RPC 通道（host 端 connection.rpc）。 */
-  rpc: ClientConnectionRpc | undefined
+  rpc: ExperienceRpc | undefined
   /** 转发事件订阅（settings/document-updated 等 Host 事件）。 */
   remote: RemoteEventSink | undefined
   t: TranslateNS<'model-reasoning'>
@@ -170,6 +210,35 @@ function EffortsChips(props: {
           </label>
         )
       })}
+    </div>
+  )
+}
+
+/** 输入模态开关组（模型级；视觉蕴含文字）。 */
+function ModalityChips(props: {
+  input: ModelModality[]
+  disabled: boolean
+  onToggle: (modality: ModelModality) => void
+  t: TranslateNS<'model-reasoning'>
+}): JSX.Element {
+  const { input, disabled, onToggle, t } = props
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+      {MODALITIES.map((modality) => (
+        <label key={modality} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+          <input
+            type="checkbox"
+            checked={input.includes(modality)}
+            disabled={disabled}
+            onChange={() => onToggle(modality)}
+            style={{ margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' }}
+          />
+          <span style={{ fontSize: 13, lineHeight: '20px' }}>{t(MODALITY_KEY[modality])}</span>
+        </label>
+      ))}
+      {input.length === 0 && (
+        <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modalityDefault')}</span>
+      )}
     </div>
   )
 }
@@ -247,6 +316,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
               name: typeof raw.name === 'string' ? raw.name : undefined,
               raw: { ...raw },
               efforts: effortsOf(raw),
+              input: normalizeModalities(raw.input),
             })
           }
           if (drafts.length > 0) {
@@ -319,6 +389,17 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
     })
   }
 
+  /** 切换一个模型的某个输入模态。 */
+  const toggleModelModality = (rowIndex: number, modelIndex: number, modality: ModelModality): void => {
+    markDirty()
+    setRows((prev) => {
+      const next = structuredClone(prev)
+      const model = next[rowIndex].models[modelIndex]
+      model.input = toggleModality(model.input, modality)
+      return next
+    })
+  }
+
   /** 切换系列配置里的一个等级。 */
   const toggleFamilyEffort = (index: number, level: ThinkingLevel): void => {
     markDirty()
@@ -331,6 +412,16 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
         const { [level]: removed, ...kept } = efforts
         next[index] = { ...next[index], efforts: kept }
       }
+      return next
+    })
+  }
+
+  /** 切换系列配置里的一个输入模态。 */
+  const toggleFamilyModality = (index: number, modality: ModelModality): void => {
+    markDirty()
+    setFamilies((prev) => {
+      const next = structuredClone(prev)
+      next[index] = { ...next[index], input: toggleModality(next[index].input ?? [], modality) }
       return next
     })
   }
@@ -360,12 +451,17 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
     return effortsState(value as FamilyRule['efforts'])
   }
 
+  /** 按当前系列配置计算一个模型的输入模态（未命中系列时保持未声明）。 */
+  const modalitiesForModel = (id: string): ModelModality[] => normalizeModalities(matchFamily(id, families)?.input)
+
   /** 把单个模型行按当前系列配置重新配对。 */
   const refreshModelFromFamily = (rowIndex: number, modelIndex: number): void => {
     markDirty()
     setRows((prev) => {
       const next = structuredClone(prev)
-      next[rowIndex].models[modelIndex].efforts = effortsForModel(next[rowIndex].models[modelIndex].id)
+      const model = next[rowIndex].models[modelIndex]
+      model.efforts = effortsForModel(model.id)
+      model.input = modalitiesForModel(model.id)
       return next
     })
   }
@@ -375,7 +471,10 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
     markDirty()
     setRows((prev) => {
       const next = structuredClone(prev)
-      for (const model of next[rowIndex].models) model.efforts = effortsForModel(model.id)
+      for (const model of next[rowIndex].models) {
+        model.efforts = effortsForModel(model.id)
+        model.input = modalitiesForModel(model.id)
+      }
       return next
     })
   }
@@ -410,6 +509,7 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
           label: rule.label.trim() || rule.pattern.trim() || rule.id,
           pattern: rule.pattern.trim(),
           efforts: effortsValue(effortsState(rule.efforts)),
+          input: normalizeModalities(rule.input),
         })),
       }
       const mrResponse = await rpc.call(MR_RPC_CHANNEL, MR_RPC_WRITE, mrPatch)
@@ -420,18 +520,24 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
       const mrView = mrResponse.value as { revision?: number }
       if (typeof mrView.revision === 'number') setMrRevision(mrView.revision)
 
-      // 2) 模型等级 → llm-pi-ai（深合并：models 数组整体替换，其余字段保留）
+      // 2) 模型等级 / 输入能力 → llm-pi-ai（深合并：models 数组整体替换，其余字段保留）
       // 空勾选（一个等级都没启用）→ 省略 reasoningEfforts 字段：
       //   - pi-ai 拒绝空对象（"has an empty reasoningEfforts"）；
       //   - 省略 = 恢复该模型的目录能力，宿主扫描会按系列配置重新注入。
+      // 模态同理：空表 = 未声明，省略 input 字段（pi-ai 把缺省与空表都当作"没配"）。
       if (api === undefined) throw new Error('settings api unavailable')
       const llmPatch: { providers: Record<string, { models: Record<string, unknown>[] }> } = { providers: {} }
       for (const row of rows) {
         llmPatch.providers[row.route] = {
           models: row.models.map((draft) => {
-            const { reasoningEfforts: _dropped, ...rest } = draft.raw
+            const { reasoningEfforts: _droppedEfforts, input: _droppedInput, ...rest } = draft.raw
             const value = effortsValue(draft.efforts)
-            return Object.keys(value).length > 0 ? { ...rest, reasoningEfforts: value } : rest
+            const modalities = normalizeModalities(draft.input)
+            return {
+              ...rest,
+              ...(Object.keys(value).length > 0 ? { reasoningEfforts: value } : {}),
+              ...(modalities.length > 0 ? { input: modalities } : {}),
+            }
           }),
         }
       }
@@ -535,6 +641,10 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
                   </Button>
                 </div>
                 <EffortsChips efforts={effortsState(family.efforts)} disabled={!writable || saving} onToggle={(level) => toggleFamilyEffort(index, level)} t={t} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modalities')}</span>
+                  <ModalityChips input={normalizeModalities(family.input)} disabled={!writable || saving} onToggle={(modality) => toggleFamilyModality(index, modality)} t={t} />
+                </div>
               </div>
             </details>
           ))}
@@ -599,6 +709,10 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
                           </summary>
                           <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <EffortsChips efforts={model.efforts} disabled={!writable || saving} onToggle={(level) => toggleLevel(rowIndex, modelIndex, level)} t={t} />
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modalities')}</span>
+                              <ModalityChips input={model.input} disabled={!writable || saving} onToggle={(modality) => toggleModelModality(rowIndex, modelIndex, modality)} t={t} />
+                            </div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                               <Button variant="ghost" size="sm" disabled={!writable || saving} onClick={() => refreshModelFromFamily(rowIndex, modelIndex)}>
                                 {t('refreshFamily')}

@@ -36,8 +36,13 @@ export default defineConfig([
     clean: false,
     // client 半区运行时依赖由浏览器 ModuleLoader 提供（react + 官方 @deepseek-ai/* 包），
     // 全部外部化，保持与官方 client 包一致的 require 形态。
+    // 例外：@deepseek-ai/schemastery 不在浏览器 module table 里（官方包是内联进 bundle 的），
+    // 必须内联，否则运行时 require 会 miss module table 导致 "Failed to load plugins"。
+    // 注意：schemastery 在 package.json dependencies 里，tsdown 会按生产依赖自动外部化，
+    // neverBundle 列表管不住它，必须用 alwaysBundle 强制内联（优先级最高）。
     deps: {
-      neverBundle: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', /^@deepseek-ai\//],
+      neverBundle: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', '@deepseek-ai/dsh-client-ui-primitives'],
+      alwaysBundle: ['@deepseek-ai/schemastery'],
     },
     outputOptions: {
       entryFileNames: 'client.js',

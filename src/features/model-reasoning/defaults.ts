@@ -14,6 +14,24 @@ export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhig
 /** 一个可选的思考等级：key = 等级，value = wire 拼写（仅 off 可为 null）。 */
 export type ReasoningEfforts = Partial<Record<(typeof THINKING_LEVELS)[number], string | null>>
 
+/**
+ * pi-ai 的 ModelModality 枚举：text / image。
+ *
+ * 背景：DSH 判断"这个模型能不能收图"只看模型目录的 `inputModalities`，
+ * 而该值来自 pi-ai 模型条目的 `input` 字段。自定义网关（edenai 这类中转）
+ * 的 /v1/models 只返回 id、不公布任何能力元数据，pi-ai 内置目录里也没有
+ * 这些路由，于是 `input` 落到路由级 defaultInput（默认 ['text']）——模型
+ * 明明能识图，DSH 却按纯文本处理，发图时报 "当前模型不支持图片"。
+ *
+ * 这里把 `input` 纳入本功能的可配置面：勾选"视觉"即写入 ['text','image']，
+ * 让模型选择器与图片准入立刻认识该模型。缺省不注入（保持 pi-ai 原样），
+ * 避免给纯文本模型误开图片能力。
+ */
+export const MODALITIES = ['text', 'image'] as const
+
+/** 一种输入模态。 */
+export type ModelModality = (typeof MODALITIES)[number]
+
 /** 按协议（provider.api）划分的默认等级表；可在插件配置里整体替换。 */
 export const DEFAULT_EFFORTS_BY_API: Record<string, ReasoningEfforts> = {
   'openai-responses': {
@@ -63,6 +81,11 @@ export interface FamilyPreset {
   label: string
   /** 该族模型的思考等级表。 */
   efforts: ReasoningEfforts
+  /**
+   * 该族模型的输入模态（text / image）。缺省 = 不注入，保持 pi-ai 目录原样；
+   * 显式给出时只补写缺失 `input` 的模型，绝不覆盖用户已声明的值。
+   */
+  input?: readonly ModelModality[]
 }
 
 /** 可序列化的系列规则（settings 命名空间 / 设置页 UI 使用的形态）。 */
@@ -75,6 +98,8 @@ export interface FamilyRule {
   pattern: string
   /** 该系列的思考等级表。 */
   efforts: ReasoningEfforts
+  /** 该系列的输入模态；缺省 = 不注入。 */
+  input?: ModelModality[]
 }
 
 /** 内置模型族预设，按声明顺序匹配（先命中先得）。 */
@@ -234,12 +259,16 @@ export const FAMILY_PRESETS: readonly FamilyPreset[] = [
 
 /**
  * 内置系列规则（= FAMILY_PRESETS 的可序列化形态，作为 settings 命名空间默认种子）。
+ *
+ * `input` 只在预设显式声明时带上：内置知识库不声明模态，因此默认零注入
+ * （升级本插件不会给任何既有模型偷偷打开图片能力）。
  */
 export const BUILTIN_FAMILY_RULES: readonly FamilyRule[] = FAMILY_PRESETS.map((preset) => ({
   id: preset.id,
   label: preset.label,
   pattern: preset.pattern.source,
   efforts: preset.efforts,
+  ...(preset.input === undefined ? {} : { input: [...preset.input] }),
 }))
 
 /** 未命中任何族的兜底等级表。 */
@@ -269,4 +298,35 @@ export const LEGACY_UNIFORM_EFFORTS: ReasoningEfforts = {
  */
 export function matchFamilyPreset(modelId: string, presets: readonly FamilyPreset[]): FamilyPreset | undefined {
   return presets.find((preset) => preset.pattern.test(modelId))
+}
+
+/**
+ * 把任意值收敛成合法的模态表：过滤未知项、去重、保持 text 在前。
+ * @param value - 待收敛的值（来自 settings 用户段或内置表）。
+ * @returns 合法模态表；不含任何合法项时返回 undefined（= 不注入）。
+ */
+export function normalizeModalities(value: unknown): ModelModality[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const seen = new Set<ModelModality>()
+  for (const item of value) {
+    if (typeof item === 'string' && (MODALITIES as readonly string[]).includes(item)) seen.add(item as ModelModality)
+  }
+  if (seen.size === 0) return undefined
+  // text 在前，与 pi-ai 目录里的书写顺序一致（便于肉眼比对与快照稳定）。
+  return MODALITIES.filter((modality) => seen.has(modality))
+}
+
+/**
+ * 深比较两张模态表（顺序无关；undefined 与空表视为相等）。
+ * @param left - 左表。
+ * @param right - 右表。
+ * @returns 是否等价。
+ */
+export function modalitiesEqual(
+  left: readonly ModelModality[] | undefined,
+  right: readonly ModelModality[] | undefined,
+): boolean {
+  const a = normalizeModalities(left) ?? []
+  const b = normalizeModalities(right) ?? []
+  return a.length === b.length && a.every((modality, index) => modality === b[index])
 }

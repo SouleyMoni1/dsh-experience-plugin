@@ -7,6 +7,7 @@
 export type DailyOptimizationLocaleKey =
   | 'nav' | 'title' | 'intro'
   | 'settingsTab' | 'modulesTab' | 'modulesIntro' | 'settingsEmpty'
+  | 'mcpTab' | 'skillsTab'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -22,6 +23,8 @@ export const zh: Record<DailyOptimizationLocaleKey, string> = {
   intro: '集中管理体验插件的日常设置与功能开关。',
   settingsTab: '插件设置',
   modulesTab: '模块开关',
+  mcpTab: 'MCP 管理',
+  skillsTab: 'Skills 管理',
   modulesIntro: '按需启用/停用各功能模块（默认全部开启）',
   settingsEmpty: '全部功能模块已关闭，可在「模块开关」页签重新开启。',
 }
@@ -33,6 +36,8 @@ export const en: Record<DailyOptimizationLocaleKey, string> = {
   intro: 'Manage the experience plugin\'s daily settings and feature toggles in one place.',
   settingsTab: 'Plugin Settings',
   modulesTab: 'Module Toggles',
+  mcpTab: 'MCP',
+  skillsTab: 'Skills',
   modulesIntro: 'Enable or disable each feature module (all on by default)',
   settingsEmpty: 'All feature modules are off; re-enable them in the Module Toggles tab.',
 }

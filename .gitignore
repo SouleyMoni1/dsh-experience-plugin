@@ -7,3 +7,5 @@ lib/
 
 .zcode/
 .e2e-web-home/
+.compat-stable/
+.verify-home/

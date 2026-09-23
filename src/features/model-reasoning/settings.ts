@@ -33,12 +33,34 @@ export const FamilyRuleSchema = z.object({
   input: z.array(z.union(MODALITIES)).default([]),
 }) as unknown as z<FamilyRule>
 
+/**
+ * 兜底等级表字段（工厂，每次返回新实例）。
+ *
+ * 之所以用工厂而不是共享常量：schemastery 的 `.volatile()` 是**原地**修改
+ * （重复调用直接抛 `volatile schema is already wrapped`），插件 Config 需要给
+ * 同一字段标 volatile，而稳定线注册用的 schema 又必须不带标记，共享实例会让
+ * 两边互相污染。
+ * @returns 带 `FALLBACK_EFFORTS` 默认值的 dict schema。
+ */
+export function defaultEffortsSchema(): z<ReasoningEfforts> {
+  return z.dict(
+    z.union([z.string(), z.const(null)]),
+    z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const),
+  ).default(FALLBACK_EFFORTS as never) as unknown as z<ReasoningEfforts>
+}
+
+/**
+ * 系列规则列表字段（工厂，每次返回新实例；理由同 {@link defaultEffortsSchema}）。
+ * @returns 带 `BUILTIN_FAMILY_RULES` 默认值的数组 schema。
+ */
+export function familiesSchema(): z<FamilyRule[]> {
+  return z.array(FamilyRuleSchema).default(BUILTIN_FAMILY_RULES as never) as unknown as z<FamilyRule[]>
+}
+
 /** 命名空间整体 schema。 */
 export const ModelReasoningSettingsSchema = z.object({
-  // schema 输出类型把 dict 键视为必填；运行时接受部分键，这里显式断言。
-  defaultEfforts: z.dict(z.union([z.string(), z.const(null)]), z.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const))
-    .default(FALLBACK_EFFORTS as never),
-  families: z.array(FamilyRuleSchema).default(BUILTIN_FAMILY_RULES as never),
+  defaultEfforts: defaultEffortsSchema(),
+  families: familiesSchema(),
 }) as unknown as z<ModelReasoningSettings>
 
 /** 命名空间解析后的值类型。 */

@@ -12,14 +12,15 @@
  *     而循环构建的请求又会被 deepFreeze，不能原地改。因此命中规则时复制一份
  *     options、打上非枚举标记，再调 ctx.llm.stream(clone)；第二次进入本监听
  *     看到标记后直接 next() 放行，避免无限递归。
- *   - 配置存在 settings 命名空间 dsh-experience-model-params，设置页保存后
- *     host 监听 document-updated 热更新，无需重启。
+ *   - 配置存在插件条目 `dsh-experience-plugin` 的 `modelParams` 段（两条线
+ *     同为该段名），设置页保存后 host 监听命名空间变更热更新，无需重启。
  *   - 规则按数组顺序匹配，先命中先得；provider 留空匹配所有路由，
  *     modelPattern 留空匹配该路由下所有模型（正则不自动加 ^$，按子串匹配）。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { MODEL_PARAMS_NS, ModelParamsSettingsSchema, type ModelParamRule, type ModelParamsSettings } from './settings.js'
+import type { ModelParamRule, ModelParamsSettings } from './settings.js'
+import { onNamespaceChanged, readSection } from '../settings-compat.js'
 
 /** 标记本模块复制出来的请求对象，防止二次进入监听时再次递归。 */
 const PARAM_MARK = Symbol('dsh-experience-model-params')
@@ -72,30 +73,21 @@ function findRule(rules: readonly ModelParamRule[], provider: string, model: str
  * @param ctx - host 插件上下文（需要 settings + llm 服务）。
  */
 export function applyModelParamsHost(ctx: Context): void {
-  // 注册配置命名空间（重复注册忽略）。
-  try {
-    ctx.settings.register(MODEL_PARAMS_NS, ModelParamsSettingsSchema, {})
-  } catch (error) {
-    ctx.logger('model-params').debug('namespace %s already registered: %s', MODEL_PARAMS_NS, (error as Error).message)
-  }
-
-  // 运行时状态：从命名空间 value（默认→user 合并）读取，设置页保存后热更新。
+  // 运行时状态：从插件条目 `modelParams` 段读取，设置页保存后热更新。
   let state: ModelParamsSettings = { enabled: true, rules: [] }
   const readSettings = (): void => {
-    const descriptor = ctx.settings.describe().find((entry) => entry.ns === MODEL_PARAMS_NS)
-    if (descriptor === undefined) return
-    const value = descriptor.value as ModelParamsSettings | undefined
-    if (value === undefined) return
+    const value = readSection<ModelParamsSettings>(ctx, 'modelParams')
     state = {
-      enabled: value.enabled === true,
+      enabled: value.enabled !== false,
       rules: Array.isArray(value.rules) ? value.rules : [],
     }
   }
   readSettings()
 
-  ctx.on('settings/document-updated', (ns) => {
-    if (String(ns) === MODEL_PARAMS_NS) readSettings()
-  })
+  ctx.effect(
+    () => onNamespaceChanged(ctx, readSettings),
+    'model-params: settings watch',
+  )
 
   const logger = ctx.logger('model-params')
 

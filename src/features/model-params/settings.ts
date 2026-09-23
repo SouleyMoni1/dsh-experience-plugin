@@ -58,5 +58,17 @@ export const ModelParamsSettingsSchema = z.object({
   rules: z.array(ModelParamRuleSchema).default([]),
 }) as unknown as z<ModelParamsSettings>
 
+/**
+ * 插件 Config 上的 `modelParams` 段（工厂，每次返回新实例）。
+ *
+ * 用工厂而非共享常量：`.volatile()` 是**原地**修改，重复调用会抛
+ * `volatile schema is already wrapped`；而稳定线注册用的 schema 必须不带标记，
+ * 共享实例会让两线互相污染。
+ * @returns 带 volatile 标记的段 schema。
+ */
+export function modelParamsSection(): z<ModelParamsSettings> {
+  return ModelParamsSettingsSchema.volatile() as unknown as z<ModelParamsSettings>
+}
+
 /** 思考等级可选项（与 model-reasoning 的档位对齐）。 */
 export const REASONING_EFFORT_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const

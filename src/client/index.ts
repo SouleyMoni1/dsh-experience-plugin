@@ -19,10 +19,20 @@ import { isModuleEnabled } from '../features/module-toggles/client/index.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
- * slots：注册 UI slot（设置页分区）；locale：双语文案；connection：wire API；
- * remote：接收 host 推送的失效事件；workspaces：侧边栏「打开文件夹」入口。
+ *
+ * slots：注册 UI slot（设置页分区）；locale：双语文案；connection：插件自有
+ * RPC 通道；remote：转发事件订阅；remote.settings：settings 读写命名空间
+ * （每个远程命名空间都是独立注册的 cordis 服务 `remote.<ns>`，官方
+ * dsh-client-ui-settings 的 inject 也是 `['remote','remote.settings']`）；
+ * workspaces：侧边栏「打开文件夹」入口。
+ *
+ * 注意**不要**注入 `settingsScope`：它是 0.1.5 稳定线的服务，0.1.7-alpha 起已被
+ * 内核移除，注入它会让整个 client 插件停在
+ * `pending (waiting for service: settingsScope)`，导致
+ * `web boot: 1 entry did not activate`。settings 访问统一走 `remote.settings`
+ * （两条线同名同形，见 client/settings-access.ts）。
  */
-export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'workspaces', 'settingsScope']
+export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'workspaces']
 
 /** 插件名（client 运行时诊断用）。 */
 export const name = 'dsh-experience-plugin-client'

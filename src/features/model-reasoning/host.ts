@@ -15,9 +15,17 @@
  *      （UI 零改动，与官方完全一致）；
  *   2. 选择回传 reasoningEffort → 适配器按 thinkingLevelMap 发送 wire 拼写。
  *
- * 幂等：只补缺失项；用户已声明（含 false）的模型绝不覆盖；settings.yaml
- * 可见可改，等于"自由配置"。每次文档变化（Models 页 / 手改 settings.yaml）
- * 都会重新扫描，删除 reasoningEfforts 的模型会被重新补上。
+ * 幂等：只补缺失项；用户已声明（含 false）的模型绝不覆盖；settings 文档可见
+ * 可改，等于"自由配置"。每次文档变化（Models 页 / 手改配置文件）都会重新扫描，
+ * 删除 reasoningEfforts 的模型会被重新补上。
+ *
+ * 双线说明：
+ *   - `llm-pi-ai` 是**另一个插件**声明的命名空间。在稳定线（0.1.5-rc.x）它就是
+ *     该插件的注册名；在 alpha 线（0.1.7-alpha.x）它是 Loader 条目 id。
+ *     两种情况都出现在 `describe()` 里，key 相同，所以读写代码两线共用。
+ *   - 本插件自己的系列配置存在**本条目**的 `defaultEfforts` / `families` 段
+ *     （命名空间 key = 条目 id，与迁移前的 `dsh-experience-plugin` 命名空间同名，
+ *     因此已保存的用户数据无缝衔接）。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ModelReasoningConfig } from './config.js'
@@ -25,21 +33,23 @@ import type { FamilyPreset } from './defaults.js'
 import { buildInjectionPatch } from './ops.js'
 import type { FamilyRule, ReasoningEfforts } from './defaults.js'
 import type { ModelReasoningSettings } from './settings.js'
-import { LEGACY_MODEL_REASONING_NS, MODEL_REASONING_NS, ModelReasoningSettingsSchema } from './settings.js'
+import { describeNamespace, readNamespace, readRawSection, readSection, updateNamespace, userOwnsSection } from '../settings-compat.js'
 import { provideRpcChannel } from '../rpc-channel.js'
 import { dispatchMrRpc, MR_RPC_CHANNEL } from './remote.js'
 
 export type { ModelReasoningConfig } from './config.js'
 export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, MODALITIES } from './defaults.js'
-export { MODEL_REASONING_NS, ModelReasoningSettingsSchema } from './settings.js'
 
-/** dsh-llm-pi-ai 注册的用户设置命名空间。 */
+/** dsh-llm-pi-ai 声明的设置命名空间（= 稳定线的注册名 / alpha 线的条目 id）。 */
 const LLM_PI_AI_NS = 'llm-pi-ai'
+
+/** 旧版系列配置命名空间（0.2.0 包名 dsh-hello-plugin），仅用于一次性迁移。 */
+const LEGACY_MODEL_REASONING_NS = 'dsh-hello-plugin'
 
 /** 变更后重新扫描的防抖间隔。 */
 const RESCAN_DEBOUNCE_MS = 500
 
-/** 适配器命名空间尚未注册时的重试间隔（毫秒），依次尝试。 */
+/** 适配器命名空间尚未出现时的重试间隔（毫秒），依次尝试。 */
 const REGISTRATION_RETRY_MS = [1000, 5000, 30000]
 
 /**
@@ -51,17 +61,6 @@ export function applyModelReasoning(ctx: Context, config: ModelReasoningConfig =
   if (config.enabled === false) {
     ctx.logger('model-reasoning').info('disabled by config')
     return
-  }
-
-  // 注册当前 + 旧版系列配置命名空间（schema 默认值 = 内置知识库）。
-  // 旧命名空间只承载 0.2.0 改名前的用户配置迁移；注册是 fiber effect，
-  // 热重载时旧 fiber 自动注销，同 fiber 重复注册会抛错，忽略即可。
-  for (const ns of [MODEL_REASONING_NS, LEGACY_MODEL_REASONING_NS]) {
-    try {
-      ctx.settings.register(ns, ModelReasoningSettingsSchema, {})
-    } catch (error) {
-      ctx.logger('model-reasoning').debug('namespace %s already registered: %s', ns, (error as Error).message)
-    }
   }
 
   // client 设置页的系列配置读写通道（登记到本插件唯一的 RPC 入口路由）。
@@ -84,26 +83,26 @@ export function applyModelReasoning(ctx: Context, config: ModelReasoningConfig =
     for (const timer of timers) clearTimeout(timer)
   }, 'model-reasoning: timers')
 
-  /** 扫描一次；返回命名空间是否已注册（决定是否安排重试）。 */
+  /** 扫描一次；返回适配器命名空间是否已就绪（决定是否安排重试）。 */
   const scan = async (): Promise<boolean> => {
     try {
       await migrateLegacySettings(ctx)
-      const registered = await injectMissingEfforts(ctx, config)
-      if (!registered) {
-        logger.debug('llm-pi-ai namespace not registered yet; will retry')
+      const ready = await injectMissingEfforts(ctx, config)
+      if (!ready) {
+        logger.debug('llm-pi-ai namespace not present yet; will retry')
       }
-      return registered
+      return ready
     } catch (error) {
       logger.warn('injection failed: %s', (error as Error).message)
-      return true // 已尽力，不再按"未注册"重试
+      return true // 已尽力，不再按"未就绪"重试
     }
   }
 
-  // 启动：立即扫一次；命名空间未注册则按间隔重试（最多重试次数 = 间隔表长度）。
+  // 启动：立即扫一次；适配器命名空间未出现则按间隔重试（次数 = 间隔表长度）。
   let retry = 0
   const attempt = (): void => {
-    void scan().then((registered) => {
-      if (!registered && retry < REGISTRATION_RETRY_MS.length) {
+    void scan().then((ready) => {
+      if (!ready && retry < REGISTRATION_RETRY_MS.length) {
         const delay = REGISTRATION_RETRY_MS[retry++]
         schedule(attempt, delay)
       }
@@ -111,7 +110,7 @@ export function applyModelReasoning(ctx: Context, config: ModelReasoningConfig =
   }
   attempt()
 
-  // 用户文档变化（Models 页 / 手改 settings.yaml）后再跑，防抖合并。
+  // 文档变化（Models 页 / 手改配置文件）后再跑，防抖合并。
   let debounceTimer: NodeJS.Timeout | undefined
   ctx.on('settings/document-updated', () => {
     if (debounceTimer !== undefined) clearTimeout(debounceTimer)
@@ -126,14 +125,14 @@ export function applyModelReasoning(ctx: Context, config: ModelReasoningConfig =
  * 为缺失 reasoningEfforts 的自定义模型写入默认等级。
  * @param ctx - host 插件上下文。
  * @param config - 功能配置。
- * @returns 命名空间是否已注册（未注册 = 本次没有机会注入）。
+ * @returns 适配器命名空间是否已就绪（false = 本次没有机会注入）。
  */
 async function injectMissingEfforts(ctx: Context, config: ModelReasoningConfig): Promise<boolean> {
   if (config.autoInject === false) return true
 
   // 读取 llm-pi-ai 的用户段（raw user layer）。
-  const descriptor = ctx.settings.describe().find((entry) => entry.ns === LLM_PI_AI_NS)
-  if (descriptor === undefined) return false // 适配器还没注册该命名空间
+  const descriptor = describeNamespace(ctx, LLM_PI_AI_NS)
+  if (descriptor === undefined) return false // 适配器条目还没上线
   const user = descriptor.user as { providers?: Record<string, import('./ops.js').PiAiProviderSection> } | undefined
   if (user?.providers === undefined) return true // 还没有用户配置的自定义 provider
 
@@ -143,7 +142,7 @@ async function injectMissingEfforts(ctx: Context, config: ModelReasoningConfig):
   //
   // 系列配置来源（优先级从高到低）：
   //   1. 插件行配置 familyPresets（改配置需重启）；
-  //   2. 本插件 settings 命名空间（设置页 UI 可编辑，热生效；schema 默认值
+  //   2. 本条目的 families 段（设置页 UI 可编辑，热生效；schema 默认值
   //      = 内置知识库，未保存前即为完整内置列表）；
   //   3. 内置 FAMILY_PRESETS（ops.ts 内兜底）。
   const mrSettings = readModelReasoningSettings(ctx)
@@ -155,9 +154,8 @@ async function injectMissingEfforts(ctx: Context, config: ModelReasoningConfig):
       label: 'user:' + source,
       efforts,
     })),
-    // settings 命名空间系列：用户一旦保存过 families（user 层接管），完全以
-    // 用户配置为准（删掉的系列不再生效）；未接管时这里为空，由 ops 内置
-    // 知识库兜底。
+    // 条目系列段：用户一旦保存过 families（user 层接管），完全以用户配置为准
+    // （删掉的系列不再生效）；未接管时这里为空，由 ops 内置知识库兜底。
     ...(mrSettings.userOwnsFamilies ? mrSettings.families
       .filter((rule) => rule.pattern.trim().length > 0)
       .map((rule) => ({
@@ -180,53 +178,66 @@ async function injectMissingEfforts(ctx: Context, config: ModelReasoningConfig):
   if (changed === 0) return true
 
   // revision 校验：若文档在我们读取后被改动，本次写入被拒，下次 document-updated 会重试。
-  await ctx.settings.update(LLM_PI_AI_NS, patch, descriptor.revision)
+  try {
+    await updateNamespace(ctx, LLM_PI_AI_NS, patch, descriptor.revision)
+  } catch (error) {
+    // settings 服务在写入期间被替换（热重载）时按"文档已变"处理，留待下次扫描。
+    ctx.logger('model-reasoning').debug('injection write refused: %s', (error as Error).message)
+    return true
+  }
   ctx.logger('model-reasoning').info('injected reasoningEfforts into %d model(s)', changed)
   return true
 }
 
 /**
- * 一次性迁移 0.2.0（包名 dsh-hello-plugin）已保存的系列配置到新命名空间。
- * 当前命名空间已有用户配置时跳过；旧命名空间没有用户配置时跳过。
+ * 一次性迁移 0.2.0（包名 dsh-hello-plugin）已保存的系列配置到本条目。
+ *
+ * 旧版本把系列配置存在独立命名空间 `dsh-hello-plugin`；本条目名
+ * `dsh-experience-plugin` 与迁移后的命名空间同名，所以只需把旧命名空间的
+ * user 段搬进本条目的 `defaultEfforts` / `families` 段。
+ * 本条目已被用户接管（families 已在 user 层）时跳过；旧命名空间无配置时跳过。
+ * @param ctx - host 插件上下文。
  */
 async function migrateLegacySettings(ctx: Context): Promise<void> {
-  const current = ctx.settings.describe().find((entry) => entry.ns === MODEL_REASONING_NS)
+  if (userOwnsSection(ctx, 'families')) return // 本条目已被用户接管
+  const current = readNamespace(ctx)
   if (current === undefined) return
-  const currentUser = current.user as { families?: unknown } | undefined
-  if (Array.isArray(currentUser?.families)) return // 新命名空间已被用户接管
 
-  const legacy = ctx.settings.describe().find((entry) => entry.ns === LEGACY_MODEL_REASONING_NS)
-  const legacyUser = legacy?.user as { families?: FamilyRule[]; defaultEfforts?: ReasoningEfforts } | undefined
+  const legacyUser = readRawSection(ctx, LEGACY_MODEL_REASONING_NS) as
+    | { families?: FamilyRule[]; defaultEfforts?: ReasoningEfforts }
+    | undefined
   if (!Array.isArray(legacyUser?.families) || legacyUser.families.length === 0) return
 
-  await ctx.settings.update(
-    MODEL_REASONING_NS,
+  await updateNamespace(
+    ctx,
+    current.ns,
     {
       defaultEfforts: legacyUser.defaultEfforts ?? { off: null, low: 'low', medium: 'medium', high: 'high' },
       families: legacyUser.families,
     },
     current.revision,
   )
-  ctx.logger('model-reasoning').info('migrated legacy series config (%d families) to %s', legacyUser.families.length, MODEL_REASONING_NS)
+  ctx.logger('model-reasoning').info('migrated legacy series config (%d families) into %s', legacyUser.families.length, current.ns)
 }
 
-/** 本插件命名空间的读取结果。 */
+/** 本条目系列配置的读取结果。 */
 interface ModelReasoningSettingsRead extends ModelReasoningSettings {
   /** 用户层是否已保存过 families（接管系列配置）。 */
   userOwnsFamilies: boolean
 }
 
-/** 读取本插件命名空间的系列配置（默认→用户合并后的 value）。 */
+/**
+ * 读取本条目 `defaultEfforts` / `families` 段（默认→用户合并后的 value）。
+ * @param ctx - host 插件上下文。
+ * @returns 系列配置；条目尚未上线时退化为内置默认。
+ */
 function readModelReasoningSettings(ctx: Context): ModelReasoningSettingsRead {
-  const descriptor = ctx.settings.describe().find((entry) => entry.ns === MODEL_REASONING_NS)
+  const descriptor = readNamespace(ctx)
   const value = descriptor?.value as ModelReasoningSettings | undefined
-  const user = descriptor?.user as { families?: unknown } | undefined
   if (value !== undefined && Array.isArray(value.families)) {
-    return {
-      ...value,
-      userOwnsFamilies: Array.isArray(user?.families),
-    }
+    return { ...value, userOwnsFamilies: userOwnsSection(ctx, 'families') }
   }
-  // 命名空间未注册（settings 服务缺席等）：退化为内置默认，仅按插件行配置工作。
+  // 条目尚未出现在 describe（服务缺席 / fiber 未激活）：退化为内置默认，
+  // 仅按插件行配置工作。
   return { defaultEfforts: undefined as never, families: [], userOwnsFamilies: false }
 }

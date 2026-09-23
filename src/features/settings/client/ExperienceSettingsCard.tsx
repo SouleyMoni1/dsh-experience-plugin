@@ -6,7 +6,7 @@
  */
 import { useState, type ReactNode } from 'react'
 import type { CSSProperties } from 'react'
-import { IconChevronDownOutline14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import { IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ReasoningEditor } from '../../model-reasoning/client/ReasoningEditor.js'
 import { CliMimicEditor } from '../../cli-mimic/client/CliMimicEditor.js'
 import { MyRulesEditor } from '../../my-rules/client/MyRulesEditor.js'
@@ -113,7 +113,7 @@ export function ModuleCard({ title, description, defaultOpen = false, disabled =
           <span style={descriptionStyle}>{description}</span>
         </span>
         <span style={{ ...chevronStyle, transform: open ? 'rotate(180deg)' : 'none' }}>
-          <IconChevronDownOutline14 />
+          <IconChevronDownOutlineMedium />
         </span>
       </button>
       {open ? <div style={bodyStyle}>{children}</div> : null}

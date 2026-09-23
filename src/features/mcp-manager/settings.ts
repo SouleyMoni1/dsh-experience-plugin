@@ -53,6 +53,18 @@ export const McpManagerSettingsSchema = z.object({
   ),
 }).default({ servers: [] }) as unknown as z<McpManagerSettings>
 
+/**
+ * 插件 Config 上的 `mcpManager` 段（工厂，每次返回新实例）。
+ *
+ * 用工厂而非共享常量：`.volatile()` 是**原地**修改，重复调用会抛
+ * `volatile schema is already wrapped`；而稳定线注册用的 schema 必须不带标记，
+ * 共享实例会让两线互相污染。
+ * @returns 带 volatile 标记的段 schema。
+ */
+export function mcpManagerSection(): z<McpManagerSettings> {
+  return McpManagerSettingsSchema.volatile() as unknown as z<McpManagerSettings>
+}
+
 /** 命名空间解析后的值类型。 */
 export interface McpManagerSettings {
   servers: ManagedMcpServer[]

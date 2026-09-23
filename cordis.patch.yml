@@ -11,7 +11,12 @@
 #
 # 这一行同时挂载两个半区：
 #   - host 半区：src/index.ts（model-reasoning + cli-mimic），经包名解析
-#   - client 半区：src/client/index.ts（官方插件配置页统一卡片），经 package.json 的 dsh.client 声明发现
+#   - client 半区：src/client/index.ts（设置页「日用优化」分区），经 package.json 的 dsh.client 声明发现
+#
+# id 必须等于包名：DSH 0.1.7-alpha 起「设置命名空间 = Loader 条目 id」，
+# 而本插件的设置数据（系列配置、cli-mimic、mcp-manager、model-params）都存在
+# 该命名空间下。若这里写成别的 id，旧数据（settings.yaml 里以
+# `dsh-experience-plugin:` 为键的段）会因命名空间对不上而无法被自动导入。
 - insert:
-    - id: hello
+    - id: dsh-experience-plugin
       name: 'dsh-experience-plugin'

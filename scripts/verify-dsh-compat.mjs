@@ -57,7 +57,7 @@ if (!existsSync(pluginDir)) {
 }
 
 // 关键：一切运行时包都从 profile 的真实安装面解析，而不是本仓库的 devDependencies
-// （仓库锁的是 0.1.5-rc.1，profile 跑的是 0.1.6-alpha.2，混用等于没测）。
+// （仓库 devDependencies 与 profile 会各自升版，混用等于没测）。
 const profileRequire = createRequire(join(profileDir, 'package.json'))
 const fromProfile = (spec) => import(pathToFileURL(profileRequire.resolve(spec)).href)
 
@@ -154,12 +154,6 @@ check('响应 installed 覆盖全部服务器', view.value?.installed?.length ==
 const root = new Context()
 root.provide('alpha', { ok: true })
 root.provide('loader', loader)
-root.provide('settings', {
-  register: (_ns, schema, options) => {
-    const value = schema(options?.base ?? {})
-    return { get: () => value, watch: () => () => {}, update: async () => {}, replace: async () => {} }
-  },
-})
 
 const { default: z } = await fromProfile('@deepseek-ai/schemastery')
 let inner = {}
@@ -173,10 +167,10 @@ const fiber = await root.plugin({
       logger: typeof c.logger('probe').info === 'function',
       effect: typeof c.effect(() => () => {}, 'probe') === 'function',
       missing: c.get('definitely-not-a-service') === undefined,
-      scopeGet: (() => {
-        const s = root.settings.register('probe-ns', z.object({ n: z.number().default(1) }).default({ n: 1 }), {})
-        return s.get().n === 1 && typeof s.watch(() => {}) === 'function' && typeof s.replace === 'function'
-      })(),
+      // settings-compat 的分线探测：只依赖 register 是否存在，因此这里用两个
+      // 极简替身分别代表两条线，验证探测函数本身在真实 cordis 上下文里成立。
+      lineLegacy: plugin.settingsLine({ register() {} }) === 'legacy',
+      lineConfig: plugin.settingsLine({ describe() {}, update() {} }) === 'config',
     }
   },
 }, { tag: 'cfg-ok', args: ['--x'] })
@@ -187,7 +181,44 @@ check('plugin config 原样透传（含数组）', inner.config === true)
 check('ctx.logger(name) 可用', inner.logger === true)
 check('ctx.effect 返回注销函数', inner.effect === true)
 check('未注册的服务返回 undefined', inner.missing === true)
-check('settings scope 形状（get/watch/replace）', inner.scopeGet === true)
+check('settings 分线探测：稳定线（有 register）', inner.lineLegacy === true)
+check('settings 分线探测：alpha 线（无 register）', inner.lineConfig === true)
+
+// ── 5. 本插件在**当前 profile 这条线**上的真实契约 ───────────────────────────
+// 两条线的差异只有「命名空间从哪来」：稳定线插件自注册，alpha 线命名空间 = 条目 id。
+// 直接读 profile 里真实的 dsh-settings，确认本插件选对了分支。
+const SettingsForms = (await fromProfile('@deepseek-ai/dsh-settings')).default
+const hasRegister = typeof SettingsForms.prototype.register === 'function'
+const profileLine = hasRegister ? 'legacy' : 'config'
+console.log(`\nsettings 线：${profileLine}（dsh-settings ${profileRequire('@deepseek-ai/dsh-settings/package.json').version}）`)
+
+if (profileLine === 'config') {
+  // alpha 线：register 必须**不存在**；命名空间由条目 id 提供，可写字段须 volatile。
+  check('alpha 线：settings 上没有 register', hasRegister === false)
+  check('alpha 线：PlainConfig 仍导出（供稳定线分支调用）', typeof plugin.PlainConfig === 'function')
+  // 可写段必须全部标了 volatile，否则设置页保存会被 host 拒绝。
+  const { Config } = plugin
+  const rootIds = (j) => j.refs[String(j.uid)].dict
+  const isVolatile = (j, key) => {
+    const dict = rootIds(j)
+    return j.refs[String(dict[key])]?.meta?.volatile === true
+  }
+  const json = Config.toJSON()
+  for (const key of ['defaultEfforts', 'families', 'cliMimic', 'mcpManager', 'modelParams']) {
+    check(`alpha 线：${key} 已标 volatile`, isVolatile(json, key))
+  }
+  for (const key of ['modelReasoning', 'openFolder']) {
+    check(`alpha 线：${key} 未标 volatile（普通配置）`, isVolatile(json, key) === false)
+  }
+  // 命名空间必须等于 loader 条目 id，而条目 id 来自 bundle patch。
+  const bundleRows = parse(readFileSync(join(pluginDir, 'cordis.patch.yml'), 'utf8'), { customTags: [JS_TAG] })
+  const inserted = bundleRows?.find((r) => r?.insert !== undefined)?.insert ?? []
+  check('bundle patch 里条目 id 等于包名', inserted.some((i) => i.id === PLUGIN), JSON.stringify(inserted.map((i) => i.id)))
+} else {
+  // 稳定线：register 必须存在，且未注册前命名空间不可见。
+  check('稳定线：settings 上有 register', hasRegister === true)
+  check('稳定线：PlainConfig 作为注册 schema 存在', typeof plugin.PlainConfig === 'function')
+}
 
 console.log(`\n已安装清单：${installed.map((s) => `${s.name}(${s.tools.length})`).join(' ') || '(空)'}`)
 console.log(failed === 0 ? 'DSH 兼容性验证通过' : `${failed} 项失败`)

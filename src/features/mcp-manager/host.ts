@@ -16,11 +16,11 @@
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { apply as applyMcpClient, type Config as McpClientConfig } from '@deepseek-ai/dsh-mcp-client'
-import type { SettingsScope } from '@deepseek-ai/dsh-settings'
 import type { ConnectionRpcResult as RpcResult } from '@deepseek-ai/dsh-client-connection'
 import { provideRpcChannel } from '../rpc-channel.js'
+import { onNamespaceChanged, readSection, writeSection } from '../settings-compat.js'
 import { applyPatchRemoval, applyPatchToggle, patchFileDefinesEntry, patchIdOf, readPatchText, resolveProfilePatchFile, writePatchText } from './patch-file.js'
-import { MCP_MANAGER_NS, McpManagerSettingsSchema, type ManagedMcpServer, type McpManagerSettings } from './settings.js'
+import { MCP_MANAGER_NS, type ManagedMcpServer, type McpManagerSettings } from './settings.js'
 
 /** 本模块 RPC 通道（绝对路径前缀，独立于其他模块）。 */
 export const MCP_MANAGER_RPC_CHANNEL = '/dsh-mcp-manager'
@@ -438,16 +438,12 @@ async function dispatchMcpManagerRpcInner(
  */
 export function applyMcpManager(ctx: Context): void {
   const logger = ctx.logger('mcp-manager')
-  // 注册配置命名空间（schema 默认值 = 空注册表；重复注册忽略）。
-  let scope: SettingsScope<McpManagerSettings> | undefined
-  try {
-    scope = ctx.settings.register(MCP_MANAGER_NS, McpManagerSettingsSchema, {})
-  } catch (error) {
-    logger.warn('mcp-manager namespace register failed: %s', (error as Error).message)
-  }
 
-  /** 当前注册表（命名空间未接管时为 []）。 */
-  const servers = (): ManagedMcpServer[] => scope?.get().servers ?? []
+  /** 当前注册表（读本条目 `mcpManager` 段；两条线同一段名）。 */
+  const servers = (): ManagedMcpServer[] => {
+    const section = readSection<McpManagerSettings>(ctx, 'mcpManager')
+    return Array.isArray(section.servers) ? section.servers : []
+  }
 
   /** 已启动的 mcp-client 子插件 fiber（name → fiber）。 */
   const fibers = new Map<string, Fiber>()
@@ -526,7 +522,7 @@ export function applyMcpManager(ctx: Context): void {
   }
 
   // settings 变更（新增/导入/开关都走这里）→ 热对账。
-  const unwatch = scope?.watch(() => { void reconcile() })
+  const unwatch = onNamespaceChanged(ctx, () => { void reconcile() })
 
   // 首次装配即按当前注册表装载。
   void reconcile()
@@ -587,8 +583,7 @@ export function applyMcpManager(ctx: Context): void {
     return dispatchMcpManagerRpc(endpoint, payload, {
       servers,
       replace: async (next) => {
-        if (scope === undefined) throw new Error('mcp-manager namespace unavailable')
-        await scope.replace({ servers: next })
+        await writeSection(ctx, 'mcpManager', { servers: next })
       },
       live,
       installed: () => collectInstalledMcpServers(ctx, new Set(servers().map((s) => s.name)), new Set(editableIds())),
@@ -598,6 +593,6 @@ export function applyMcpManager(ctx: Context): void {
 
   ctx.effect(() => () => {
     dispose()
-    unwatch?.()
+    unwatch()
   }, 'mcp-manager: rpc channel + settings watch')
 }

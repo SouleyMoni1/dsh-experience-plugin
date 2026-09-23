@@ -1,14 +1,23 @@
 // model-reasoning 端到端验证：真实 settings-file + llm + pi-ai 栈，临时 DSH_HOME
+//
+// 依赖栈从 `.compat-stable/` 解析（npm 的 `latest` 线 = 0.1.5-rc.2）。原因：
+// 上游在 0.1.7-alpha 起**删除了 `@deepseek-ai/dsh-settings-file`**（该包最后
+// 一版是 0.1.6-alpha.2），而本脚本要证的正是「稳定线上 register 分支 + 注入 + 迁移」
+// 这条完整链路，用稳定线栈才有意义。跑之前先 `cd .compat-stable && npm install --legacy-peer-deps`。
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-// 运行前提：先 pnpm install（本脚本使用下列 devDependencies）。
-import { Context } from '@deepseek-ai/cordis'
-import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
-import * as piAi from '@deepseek-ai/dsh-llm-pi-ai'
-import { parse } from 'yaml'
-import { applyModelReasoning } from '../lib/types/features/model-reasoning/host.js'
-import { buildInjectionPatch, MODEL_REASONING_NS, ModelReasoningSettingsSchema, dispatchMrRpc, MR_RPC_GET, MR_RPC_WRITE } from '../lib/index.js'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
+
+const stableRequire = createRequire(new URL('../.compat-stable/package.json', import.meta.url))
+const fromStable = (spec) => import(pathToFileURL(stableRequire.resolve(spec)).href)
+
+const { Context } = await fromStable('@deepseek-ai/cordis')
+const FileSettingsProvider = (await fromStable('@deepseek-ai/dsh-settings-file')).default
+const LlmRuntime = (await fromStable('@deepseek-ai/dsh-llm')).default
+const piAi = await fromStable('@deepseek-ai/dsh-llm-pi-ai')
+const { parse } = await fromStable('yaml')
+const { applyModelReasoning } = await import('../lib/types/features/model-reasoning/host.js')
+const { buildInjectionPatch, ensureNamespace, MODEL_REASONING_NS, ModelReasoningSettingsSchema, PlainConfig, dispatchMrRpc, MR_RPC_GET, MR_RPC_WRITE } = await import('../lib/index.js')
 
 const HOME = fileURLToPath(new URL('../.e2e-home', import.meta.url))
 const DOC = HOME + '/settings.yaml'
@@ -86,15 +95,20 @@ try {
   process.exit(1)
 }
 await new Promise((r) => setTimeout(r, 500))
+// 真实 apply() 的第一步：稳定线上把 PlainConfig 注册到 EXPERIENCE_NS
+// （alpha 线该调用是 no-op，命名空间由 loader 条目 id 提供）。
+ensureNamespace(appMigrate, PlainConfig)
 applyModelReasoning(appMigrate, {})
 await new Promise((r) => setTimeout(r, 2000))
 const migratedView = appMigrate.settings.describe().find((d) => String(d.ns) === 'dsh-experience-plugin')
-const legacyView = appMigrate.settings.describe().find((d) => String(d.ns) === 'dsh-hello-plugin')
 if (!migratedView) { console.log('FAIL: new namespace missing after migration'); process.exit(1) }
 if (!Array.isArray(migratedView.user?.families)) { console.log('FAIL: new namespace did not adopt legacy user config'); process.exit(1) }
 if (migratedView.user.families.length !== 1 || migratedView.user.families[0].id !== 'legacy-x') { console.log('FAIL: migrated family mismatch'); process.exit(1) }
 if (migratedView.user.defaultEfforts.medium !== 'medium') { console.log('FAIL: migrated defaultEfforts mismatch'); process.exit(1) }
-if (!legacyView) { console.log('FAIL: legacy namespace should stay registered for migration'); process.exit(1) }
+// 旧命名空间**不应**被注册：它已无插件声明，迁移靠 settings.section() 直读原始段。
+// 若这里出现，说明又退回了「靠 describe() 读旧命名空间」的死路。
+const legacyView = appMigrate.settings.describe().find((d) => String(d.ns) === 'dsh-hello-plugin')
+if (legacyView) { console.log('FAIL: legacy namespace must not be registered'); process.exit(1) }
 const migratedYaml = parse(readFileSync(MIGRATE_DOC, 'utf8'))
 const legacyTestModel = migratedYaml['llm-pi-ai'].providers.codex.models[0]
 console.log('migrated families:', migratedView.user.families.length, 'legacy-test-model:', JSON.stringify(legacyTestModel.reasoningEfforts))
@@ -115,6 +129,7 @@ await new Promise((r) => setTimeout(r, 500))
 console.log('plugins mounted')
 
 // 1) 调用 feature（行配置为空 → 族预设生效 + 旧值升级）
+ensureNamespace(app, PlainConfig)
 applyModelReasoning(app, {})
 await new Promise((r) => setTimeout(r, 2000))
 
@@ -217,7 +232,9 @@ if (myModelX.reasoningEfforts.max !== 'max' || myModelX.reasoningEfforts.medium 
 console.log('rpc write applies to new models, keeps configured ones: OK')
 
 // 3) 幂等：以当前文档为基准，再挂一个插件实例后文档不得变化
+//    （重复 ensureNamespace 必须被容错——热重载边界）
 const beforeIdem = readFileSync(DOC, 'utf8')
+ensureNamespace(app, PlainConfig)
 applyModelReasoning(app, {})
 await new Promise((r) => setTimeout(r, 1200))
 const after2 = readFileSync(DOC, 'utf8')

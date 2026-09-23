@@ -14,8 +14,8 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type ToolRegistry from '@deepseek-ai/dsh-tools'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import type { SettingsProvider } from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
+import { onNamespaceChanged, readSection, writeSection } from '../settings-compat.js'
 import {
   createCustomProfile,
   normalizeStoredProfiles,
@@ -27,7 +27,6 @@ import {
 
 type AppContext = Context & {
   tools?: ToolRegistry
-  settings: SettingsProvider
   credentials?: { resolve(ref: ReturnType<typeof credentialRef>): Promise<{ value: string } | undefined> }
   llm?: {
     listProviders(): Array<{ id: string }>
@@ -72,25 +71,53 @@ export interface Config {
   extraBodyJson: string
 }
 
-export const Config = z.object({
-  enabled: z.boolean().default(false),
-  activeProfileId: z.string().default('codex'),
-  profiles: z.dict(ProfileConfig).default({}),
-  port: z.number().default(4123),
-  host: z.string().default('127.0.0.1'),
-  upstreamBaseUrl: z.string().default(''),
-  apiKeyEnv: z.string().default(''),
-  authorizationPrefix: z.string().default('Bearer'),
-  userAgent: z.string().default('codex_cli_rs/0.148.0 (Windows 10.0; x86_64) WindowsTerminal'),
-  originator: z.string().default('codex_cli_rs'),
-  installationId: z.string().default(''),
-  addClientMetadata: z.boolean().default(true),
-  extraHeadersJson: z.string().default('{}'),
-  extraBodyJson: z.string().default('{}'),
-}) as unknown as z<Config>
+/**
+ * cli-mimic 配置的 schema 工厂（每次返回新实例）。
+ *
+ * 用工厂而非共享常量：`.volatile()` 是**原地**修改，重复调用会抛
+ * `volatile schema is already wrapped`；插件 Config 需要给本段标 volatile，
+ * 而稳定线注册用的 schema 必须不带标记，共享实例会让两线互相污染。
+ * @returns 无 volatile 标记的 cli-mimic 段 schema。
+ */
+export function cliMimicConfigSchema(): z<Config> {
+  return z.object({
+    enabled: z.boolean().default(false),
+    activeProfileId: z.string().default('codex'),
+    profiles: z.dict(ProfileConfig).default({}),
+    port: z.number().default(4123),
+    host: z.string().default('127.0.0.1'),
+    upstreamBaseUrl: z.string().default(''),
+    apiKeyEnv: z.string().default(''),
+    authorizationPrefix: z.string().default('Bearer'),
+    userAgent: z.string().default('codex_cli_rs/0.148.0 (Windows 10.0; x86_64) WindowsTerminal'),
+    originator: z.string().default('codex_cli_rs'),
+    installationId: z.string().default(''),
+    addClientMetadata: z.boolean().default(true),
+    extraHeadersJson: z.string().default('{}'),
+    extraBodyJson: z.string().default('{}'),
+  }) as unknown as z<Config>
+}
+
+/** cli-mimic 配置 schema（无 volatile 标记；稳定线注册与 RPC 校验共用）。 */
+export const CliMimicConfigSchema = cliMimicConfigSchema()
+
+/**
+ * 插件 Config 上的 `cliMimic` 段（带 volatile 标记，设置页可写）。
+ * @returns 带 volatile 标记的段 schema。
+ */
+export function cliMimicSection(): z<Config> {
+  return cliMimicConfigSchema().volatile() as unknown as z<Config>
+}
 
 const DEFAULT_USER_AGENT = 'codex_cli_rs/0.148.0 (Windows 10.0; x86_64) WindowsTerminal'
 const DEFAULT_ORIGINATOR = 'codex_cli_rs'
+/**
+ * 历史命名空间名（迁移前 `cli-mimic` 是独立 settings 命名空间）。
+ *
+ * 现已并入插件条目 `dsh-experience-plugin` 的 `cliMimic` 段——两条线的命名空间
+ * 都只能是「插件条目 id」，无法再自建命名空间。此常量仅供浏览器侧做
+ * 旧命名空间 → 段的映射（见 client/settings-access.ts）。
+ */
 export const CLI_MIMIC_NS = 'cli-mimic'
 
 interface RuntimeConfig {
@@ -527,26 +554,20 @@ export function applyCliMimic(ctx: AppContext): void {
     else removeFetchPatch()
   }
 
-  let scope: ReturnType<SettingsProvider['register']> | undefined
-  try {
-    scope = ctx.settings.register(CLI_MIMIC_NS, Config, { applies: 'live' })
-  } catch (error) {
-    logger.debug('cli-mimic namespace already registered: %s', (error as Error).message)
-  }
-  if (scope !== undefined) {
-    state.config = normalizeConfig(scope.get() as Partial<Config>)
-    const watchDispose = scope.watch((next, prev) => {
-      const oldPort = (prev as Partial<Config> | undefined)?.port ?? state.config.port
-      state.config = normalizeConfig(next as Partial<Config>)
+  // 配置段：本条目 `cliMimic`（两条线的段名一致，读法统一）。
+  state.config = normalizeConfig(readSection<Partial<Config>>(ctx, 'cliMimic'))
+  ctx.effect(
+    () => onNamespaceChanged(ctx, () => {
+      const oldPort = state.config.port
+      state.config = normalizeConfig(readSection<Partial<Config>>(ctx, 'cliMimic'))
       if (state.config.port !== oldPort) restartServer()
       syncFetchPatch()
-    })
-    ctx.effect(() => () => watchDispose(), 'cli-mimic: settings watch')
-  }
+    }),
+    'cli-mimic: settings watch',
+  )
 
   startServer()
   syncFetchPatch()
-
   ctx.effect(() => () => {
     removeFetchPatch()
     for (const server of [...servers]) {
@@ -597,7 +618,7 @@ export function applyCliMimic(ctx: AppContext): void {
         render: (_args: unknown, value: unknown) => [{ type: 'text', text: String(value) }],
       },
       async execute(args: Record<string, unknown>) {
-        const current = ctx.settings.get(CLI_MIMIC_NS) as Partial<Config>
+        const current = readSection<Partial<Config>>(ctx, 'cliMimic')
         const profiles = normalizeStoredProfiles(current.profiles)
         const nextProfiles = { ...profiles }
         let active = typeof args.activeProfileId === 'string' && args.activeProfileId
@@ -650,7 +671,7 @@ export function applyCliMimic(ctx: AppContext): void {
           activeProfileId: active,
         }
         if (args.enabled !== undefined) patch.enabled = args.enabled
-        await ctx.settings.update(CLI_MIMIC_NS, patch)
+        await writeSection(ctx, 'cliMimic', patch)
         return JSON.stringify(statusOf(state), null, 2)
       },
     })), 'cli-mimic: configure tool')

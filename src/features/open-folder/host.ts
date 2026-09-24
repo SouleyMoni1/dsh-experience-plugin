@@ -75,6 +75,10 @@ function openInFileManager(path: string, platform: NodeJS.Platform = process.pla
   // spawn 直接传参，不经 shell，避免注入；detach + unref 让子进程脱离
   // dsh 进程生命周期（否则 dsh 退出时资源管理器窗口会被带掉）。
   const child = spawn(cmd, args(path), { detached: true, stdio: 'ignore' })
+  // 系统 opener 不存在时 spawn 会异步 emit error；不监听会抛未捕获异常把 DSH 带崩。
+  child.on('error', (err) => {
+    console.error('[open-folder] spawn failed:', cmd, err)
+  })
   child.unref()
 }
 

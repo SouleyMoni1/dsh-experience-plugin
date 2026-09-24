@@ -15,9 +15,12 @@ import type { IWorkspaces, WorkspaceView } from '@deepseek-ai/dsh-client-runtime
 /** 已注入标记（防止同一个菜单被重复注入）。 */
 const MENU_INJECTED_MARK = 'data-dsh-open-folder-menu-injected'
 
-/** 打开失败提示样式 tag。 */
+/** 打开结果提示样式 tag。 */
 const TOAST_CLASS = 'dsh-open-folder-toast'
 const TOAST_TAG = 'dsh-experience/open-folder-toast.css'
+const TOAST_ANIM = 'dsh-open-folder-toast-in'
+/** 提示时长：成功短（看一眼就够），失败长（给足时间读原因）。 */
+const TOAST_MS = { ok: 2600, error: 6500 }
 
 /** folder_open_16 图标（与官方 IconFolderOpen16 同构，纯 DOM 注入用）。 */
 const FOLDER_ICON_SVG = [
@@ -43,42 +46,56 @@ function injectToastCss(): void {
   tag.textContent = [
     `.${TOAST_CLASS}{`,
     'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:9999;',
-    'max-width:min(480px,calc(100vw - 48px));box-sizing:border-box;',
+    'max-width:min(520px,calc(100vw - 48px));box-sizing:border-box;',
     'display:flex;align-items:center;gap:8px;',
-    'border:1px solid var(--dsw-alias-border-l2-darkmode-thin,rgba(127,127,127,.22));',
-    'background:var(--dsw-alias-interactive-bg-hover-danger,rgba(216,97,97,.14));',
-    'color:var(--dsw-alias-state-error-primary,#d86161);',
-    'border-radius:10px;padding:8px 12px;font-size:13px;line-height:1.4;',
-    'box-shadow:var(--dsw-shadow-lv2,0 4px 16px rgba(0,0,0,.18));',
+    'border:.5px solid color-mix(in srgb,var(--dsw-alias-label-primary,#0f1115) 12%,transparent);',
+    'background:var(--dsw-alias-bg-layer-1,#fff);',
+    'color:var(--dsw-alias-label-primary,#0f1115);',
+    'border-radius:12px;padding:10px 14px;font-size:13px;line-height:1.45;',
+    'box-shadow:var(--dsw-elevation-prominent,0 8px 30px rgba(0,0,0,.16));',
+    `animation:${TOAST_ANIM} 320ms cubic-bezier(0.32,0.72,0,1);`,
     '}',
-    `.${TOAST_CLASS} button{border:none;background:transparent;color:inherit;cursor:pointer;padding:2px 4px;border-radius:4px;font-size:12px;flex:none}`,
-    `.${TOAST_CLASS} button:hover{background:rgba(216,97,97,.2)}`
+    `@keyframes ${TOAST_ANIM}{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%)}}`,
+    `.${TOAST_CLASS}::before{content:'';width:6px;height:6px;border-radius:50%;flex:none;background:var(--dsw-alias-label-tertiary,#8a8f98)}`,
+    `.${TOAST_CLASS}--ok::before{background:var(--dsw-alias-state-success-primary,#22c55e)}`,
+    `.${TOAST_CLASS}--error::before{background:var(--dsw-alias-state-error-primary,#d86161)}`,
+    `.${TOAST_CLASS} button{border:none;background:transparent;color:var(--dsw-alias-label-tertiary,#8a8f98);cursor:pointer;padding:2px 4px;border-radius:6px;font-size:12px;flex:none}`,
+    `.${TOAST_CLASS} button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}`,
+    '@media (prefers-reduced-motion: reduce){.' + TOAST_CLASS + '{animation:none}}'
   ].join('')
   document.head.appendChild(tag)
 }
 
-/** 打开失败时给用户一个短暂可见的错误提示（不依赖 host toast 服务）。 */
+/**
+ * 给用户一个短暂可见的结果提示（不依赖 host toast 服务）。
+ * 成功也要提示：系统文件管理器常被浏览器窗口挡在后面，只看「有没有弹窗」会误判成没反应。
+ * @param message - 提示文案。
+ * @param kind - ok 成功 / error 失败。
+ */
 let toastTimer = 0
-function showErrorToast(message: string): void {
+function showToast(message: string, kind: 'ok' | 'error'): void {
   if (typeof document === 'undefined') return
   const existing = document.querySelector(`.${TOAST_CLASS}`)
   if (existing !== null) existing.remove()
   const toast = document.createElement('div')
-  toast.className = TOAST_CLASS
-  toast.setAttribute('role', 'alert')
+  toast.className = `${TOAST_CLASS} ${TOAST_CLASS}--${kind}`
+  toast.setAttribute('role', kind === 'error' ? 'alert' : 'status')
   const text = document.createElement('span')
   text.textContent = message
-  const close = document.createElement('button')
-  close.type = 'button'
-  close.textContent = '✕'
-  close.addEventListener('click', () => toast.remove())
-  toast.append(text, close)
+  toast.append(text)
+  if (kind === 'error') {
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.textContent = '✕'
+    close.addEventListener('click', () => toast.remove())
+    toast.append(close)
+  }
   document.body.appendChild(toast)
   if (toastTimer !== 0) window.clearTimeout(toastTimer)
   toastTimer = window.setTimeout(() => {
     toastTimer = 0
     toast.remove()
-  }, 6000)
+  }, TOAST_MS[kind])
 }
 
 /**
@@ -101,16 +118,17 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
         if (!res.ok || payload?.ok !== true) {
           throw new Error(payload?.error ?? `HTTP ${res.status}`)
         }
+        showToast(`已在文件管理器中打开「${basename(path)}」`, 'ok')
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
         console.error('[open-folder] failed to open folder:', path, error)
-        showErrorToast(`无法打开文件夹：${message}`)
+        showToast(`无法打开文件夹：${message}`, 'error')
       })
   }
 
-  /** 最近一次被点击的三点菜单对应 workspace 路径。 */
-  let pendingPath: string | undefined
+  /** 最近一次被点击的三点菜单所在的 workspace 行。 */
+  let pendingRow: HTMLElement | undefined
 
   /** 行文本 → workspace path（唯一匹配才返回，避免开错目录）。 */
   const resolvePath = (label: string): string | undefined => {
@@ -134,6 +152,17 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
     return undefined
   }
 
+  /** 行 DOM → workspace path：先用官方行 key（workspace:<id>）精确命中，再退回标题/目录名匹配。 */
+  const resolveRow = (row: HTMLElement): string | undefined => {
+    const key = row.dataset.rowKey ?? ''
+    const id = key.startsWith('workspace:') ? key.slice('workspace:'.length) : ''
+    if (id !== '') {
+      const hit = workspaces.list.getSnapshot().items.find((ws) => ws.workspaceId === id)
+      if (hit !== undefined) return hit.path
+    }
+    return resolvePath(extractLabel(row))
+  }
+
   /** 从行 DOM 提取纯标题（过滤掉按钮的 aria-label 文本）。 */
   const extractLabel = (row: HTMLElement): string => {
     let text = row.innerText ?? ''
@@ -145,17 +174,19 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
     return text.replace(/\s+/g, '').trim()
   }
 
-  /** capture 阶段记录被点击的三点按钮所在 workspace 行。 */
-  const onCaptureClick = (event: MouseEvent): void => {
-    const target = event.target as HTMLElement
-    if (target.closest('[role="menu"]') !== null) return // 菜单内的点击不更新
+  /**
+   * capture 阶段记录三点按钮所在的 workspace 行。
+   * pointerdown 与 click 都记：鼠标走 click，同时保留 pointerdown 兜底，
+   * 避免菜单在 click 之前抢走事件时记不到行。
+   */
+  const rememberRow = (event: Event): void => {
+    const target = event.target as HTMLElement | null
+    if (target === null || target.closest('[role="menu"]') !== null) return // 菜单内的点击不更新
     const row = target.closest<HTMLElement>('[role="treeitem"][aria-expanded]')
-    if (row === null) return
-    const label = extractLabel(row)
-    if (label === '') return
-    pendingPath = resolvePath(label)
+    if (row !== null) pendingRow = row
   }
-  document.addEventListener('click', onCaptureClick, true)
+  document.addEventListener('pointerdown', rememberRow, true)
+  document.addEventListener('click', rememberRow, true)
 
   /** 只处理「工作区行」的三点菜单；其他菜单（会话行、视图选项等）一律不碰。 */
   const isWorkspaceMenu = (menu: HTMLElement): boolean => {
@@ -199,7 +230,14 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
     btn.addEventListener('click', (event: MouseEvent) => {
       event.stopPropagation()
       event.preventDefault()
-      if (pendingPath !== undefined) open(pendingPath)
+      const path = pendingRow === undefined ? undefined : resolveRow(pendingRow)
+      if (path === undefined) {
+        // 绝不静默失败：定位不到目录也要让用户看到原因。
+        console.warn('[open-folder] 未能解析工作区路径', pendingRow?.dataset.rowKey ?? '', pendingRow?.innerText ?? '')
+        showToast('无法定位这个工作区的目录，请刷新页面后重试', 'error')
+      } else {
+        open(path)
+      }
       // 模拟菜单外点击，让 Menu 组件自己执行 onClose 关闭菜单。
       document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
     })
@@ -223,7 +261,8 @@ export function applyOpenFolder(ctx: ClientContext, workspaces: IWorkspaces | un
     observer.observe(document.documentElement, { childList: true, subtree: true })
     return () => {
       observer.disconnect()
-      document.removeEventListener('click', onCaptureClick, true)
+      document.removeEventListener('pointerdown', rememberRow, true)
+      document.removeEventListener('click', rememberRow, true)
     }
   }, 'open-folder: menu injection')
 }

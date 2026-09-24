@@ -2,8 +2,11 @@
  * cli-mimic —— browser 半区：CLI 请求模拟配置编辑器。
  *
  * 这个组件只渲染配置内容，外层由统一的“DSH 体验插件配置”卡片负责模块下拉。
+ * 视觉：输入 / 下拉 / 复选框 / 徽标 / 按钮的静态外观全部走 .dx-* 类
+ * （见 src/client/design/styles.ts），这里只写布局与随状态变化的属性。
  */
 import { useEffect, useState, type CSSProperties } from 'react'
+import { cx, MONO_FONT } from '../../../client/design/index.js'
 import {
   createCustomProfile,
   normalizeStoredProfiles,
@@ -16,112 +19,10 @@ import {
 
 const NS = 'cli-mimic'
 
-const inputStyle: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  padding: '8px 10px',
-  borderRadius: '8px',
-  border: '1px solid var(--dsw-alias-border-l2, #d0d7de)',
-  background: 'var(--dsw-alias-bg-layer-3, #ffffff)',
-  color: 'var(--dsw-alias-label-primary, #1f2328)',
-  fontSize: '13px',
-  fontFamily: 'inherit',
-}
-
-const labelStyle: CSSProperties = {
-  display: 'block',
-  marginBottom: '6px',
-  fontSize: '12px',
-  fontWeight: 600,
-  color: 'var(--dsw-alias-label-primary, #24292f)',
-}
-
+/** 表单行：只保留纵向间距，外观见 .dx-label / .dx-input / .dx-textarea 等类。 */
 const rowStyle: CSSProperties = {
   marginBottom: '14px',
 }
-
-const badgeStyle: CSSProperties = {
-  whiteSpace: 'nowrap',
-  background: 'var(--dsw-alias-bg-module-platform, #eef1f4)',
-  color: 'var(--dsw-alias-label-secondary, #57606a)',
-  borderRadius: '999px',
-  flex: 'none',
-  padding: '1px 8px',
-  fontSize: '11px',
-  fontWeight: 500,
-  lineHeight: '17px',
-}
-
-const buttonStyle: CSSProperties = {
-  font: 'inherit',
-  cursor: 'pointer',
-  border: '1px solid transparent',
-  borderRadius: '8px',
-  padding: '6px 12px',
-  fontSize: '13px',
-  lineHeight: 1.5,
-}
-
-const primaryButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  background: 'var(--dsw-alias-brand-primary, #0969da)',
-  color: '#ffffff',
-}
-
-const ghostButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  borderColor: 'var(--dsw-alias-border-l2, #d0d7de)',
-  color: 'var(--dsw-alias-label-secondary, #57606a)',
-  background: 'transparent',
-}
-
-const dangerButtonStyle: CSSProperties = {
-  ...buttonStyle,
-  borderColor: 'var(--dsw-alias-border-l2, #d0d7de)',
-  color: 'var(--dsw-alias-state-error-primary, #cf222e)',
-  background: 'transparent',
-}
-
-const chevronSvg = encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6e7781" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
-)
-
-const selectStyle: CSSProperties = {
-  ...inputStyle,
-  height: '38px',
-  appearance: 'none',
-  paddingRight: '32px',
-  backgroundImage: `url("data:image/svg+xml,${chevronSvg}")`,
-  backgroundRepeat: 'no-repeat',
-  backgroundPosition: 'right 10px center',
-  cursor: 'pointer',
-}
-
-const checkSvg = encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
-)
-
-const checkboxStyle = (checked: boolean): CSSProperties => ({
-  appearance: 'none',
-  width: 18,
-  height: 18,
-  margin: 0,
-  flex: 'none',
-  borderRadius: 5,
-  border: '1px solid var(--dsw-alias-border-l2, #d0d7de)',
-  background: 'var(--dsw-alias-bg-layer-3, #ffffff)',
-  cursor: 'pointer',
-  ...(checked
-    ? {
-        borderColor: 'var(--dsw-alias-brand-primary, #0969da)',
-        background: 'var(--dsw-alias-brand-primary, #0969da)',
-        backgroundImage: `url("data:image/svg+xml,${checkSvg}")`,
-        backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center',
-        backgroundSize: '12px 12px',
-      }
-    : {}),
-})
 
 function toDraft(source: MimicProfile | StoredProfile): MimicProfile {
   return {
@@ -156,21 +57,22 @@ function mergeRuntime(base: MimicProfile, legacy: MimicProfile | null): MimicPro
 }
 
 function field(label: string, value: string, onChange: (next: string) => void, textarea = false, monospace = false, disabled = false) {
-  const style: CSSProperties = textarea
-    ? { ...inputStyle, fontFamily: monospace ? 'monospace' : 'inherit', resize: 'vertical', minHeight: 72 }
-    : inputStyle
-  const props = {
-    style: disabled ? { ...style, opacity: 0.7, cursor: 'not-allowed' } : style,
+  // 等宽字体用令牌内联兜底：styles.ts 里 .dx-mono 排在表单基类之前，
+  // 会被 `.dx-textarea { font: inherit }` 覆盖（已上报给 Lead 调整声明顺序）。
+  const monoStyle: CSSProperties | undefined = monospace ? { fontFamily: MONO_FONT } : undefined
+  const common = {
+    className: cx(textarea ? 'dx-textarea' : 'dx-input', 'dx-focus', monospace && 'dx-mono'),
+    style: monoStyle,
     value,
     onChange: (event: any) => onChange(event.target.value),
     disabled,
   }
   return (
     <div style={rowStyle}>
-      <label style={labelStyle}>{label}</label>
+      <label className="dx-label">{label}</label>
       {textarea
-        ? <textarea {...props} rows={4} />
-        : <input {...props} type="text" />}
+        ? <textarea {...common} rows={4} />
+        : <input {...common} type="text" />}
     </div>
   )
 }
@@ -178,9 +80,9 @@ function field(label: string, value: string, onChange: (next: string) => void, t
 function selectField(label: string, value: string, onChange: (next: string) => void, options: Array<{ value: string; label: string }>, disabled = false) {
   return (
     <div style={rowStyle}>
-      <label style={labelStyle}>{label}</label>
+      <label className="dx-label">{label}</label>
       <select
-        style={disabled ? { ...selectStyle, opacity: 0.7, cursor: 'not-allowed' } : selectStyle}
+        className="dx-select dx-focus"
         value={value}
         onChange={(event: any) => onChange(event.target.value)}
         disabled={disabled}
@@ -198,16 +100,18 @@ function toggleRow(checked: boolean, label: string, onChange: (next: boolean) =>
       alignItems: 'center',
       gap: '10px',
       marginBottom: '16px',
+      // 禁用态整行变淡；选中态外观由 .dx-check 的 :checked 伪类负责。
       opacity: disabled ? 0.7 : 1,
     }}>
       <input
         type="checkbox"
+        className="dx-check dx-focus"
         checked={checked}
         onChange={(event: any) => onChange(event.target.checked)}
         disabled={disabled}
-        style={checkboxStyle(checked)}
       />
-      <label style={{ fontSize: 13, color: 'var(--dsw-alias-label-primary, #1f2328)', cursor: disabled ? 'not-allowed' : 'pointer' }}>{label}</label>
+      {/* dx-label 自带 6px 下边距，作为行内标签时归零；cursor 随禁用态变化。 */}
+      <label className="dx-label" style={{ marginBottom: 0, cursor: disabled ? 'not-allowed' : 'pointer' }}>{label}</label>
     </div>
   )
 }
@@ -427,10 +331,10 @@ export function CliMimicEditor(props: CliMimicEditorProps): any {
   }
 
   if (phase === 'loading') {
-    return <div style={{ padding: '14px 16px', color: 'var(--dsw-alias-label-tertiary, #6e7781)', fontSize: 13 }}>加载中…</div>
+    return <div className="dx-hint">加载中…</div>
   }
   if (phase === 'error') {
-    return <div style={{ padding: '14px 16px', color: 'var(--dsw-alias-state-error-primary, #cf222e)', fontSize: 13 }}>{error}</div>
+    return <div className="dx-msg dx-msg--error">{error}</div>
   }
 
   const isPreset = !profiles[activeId]
@@ -445,17 +349,18 @@ export function CliMimicEditor(props: CliMimicEditorProps): any {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--dsw-alias-label-primary, #1f2328)', fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>CLI 请求模拟</span>
-        <span style={{ color: 'var(--dsw-alias-label-tertiary, #6e7781)', fontSize: 13, lineHeight: 1.5 }}>{displayName} · {enabled ? '已启用' : '未启用'}</span>
-        {hasChanges ? <span style={badgeStyle}>未保存</span> : null}
+        <span className="dx-card__title">CLI 请求模拟</span>
+        {/* dx-card__desc 自带 3px 上边距，横排时归零 */}
+        <span className="dx-card__desc" style={{ marginTop: 0 }}>{displayName} · {enabled ? '已启用' : '未启用'}</span>
+        {hasChanges ? <span className="dx-badge">未保存</span> : null}
       </div>
 
       {toggleRow(enabled, '全局开启 CLI 请求模拟', setEnabledToggle)}
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <div style={{ flex: '1 1 240px', minWidth: 200 }}>
-          <label style={{ ...labelStyle, marginBottom: 6 }}>当前配置 · {customEntries.length} 个自定义</label>
+          <label className="dx-label">当前配置 · {customEntries.length} 个自定义</label>
           <select
-            style={selectStyle}
+            className="dx-select dx-focus"
             value={activeId}
             onChange={(event: any) => selectProfile(event.target.value)}
           >
@@ -472,10 +377,10 @@ export function CliMimicEditor(props: CliMimicEditorProps): any {
               : null}
           </select>
         </div>
-        <button type="button" style={ghostButtonStyle} onClick={duplicateCurrent}>复制</button>
-        <button type="button" style={ghostButtonStyle} onClick={addCustom}>新建</button>
+        <button type="button" className="dx-btn dx-btn--ghost dx-press dx-focus" onClick={duplicateCurrent}>复制</button>
+        <button type="button" className="dx-btn dx-btn--ghost dx-press dx-focus" onClick={addCustom}>新建</button>
         {!isPreset
-          ? <button type="button" style={dangerButtonStyle} onClick={() => removeProfile(activeId)}>删除</button>
+          ? <button type="button" className="dx-btn dx-btn--danger dx-press dx-focus" onClick={() => removeProfile(activeId)}>删除</button>
           : null}
       </div>
 
@@ -498,12 +403,12 @@ export function CliMimicEditor(props: CliMimicEditorProps): any {
       {field('额外请求体 JSON', draft.extraBodyJson, (v) => setField('extraBodyJson', v), true, true, isPreset)}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
-        <button type="button" disabled={saving} onClick={() => void save()} style={primaryButtonStyle}>
+        <button type="button" className="dx-btn dx-btn--primary dx-press dx-focus" disabled={saving} onClick={() => void save()}>
           {saving ? '保存中…' : isPreset ? '使用此预设' : '保存配置'}
         </button>
-        <button type="button" disabled={saving || !hasChanges} onClick={discard} style={ghostButtonStyle}>放弃修改</button>
-        {savedAt > 0 ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-label-tertiary, #6e7781)' }}>已保存</span> : null}
-        {error ? <span style={{ fontSize: 12, color: 'var(--dsw-alias-state-error-primary, #cf222e)' }}>{error}</span> : null}
+        <button type="button" className="dx-btn dx-btn--ghost dx-press dx-focus" disabled={saving || !hasChanges} onClick={discard}>放弃修改</button>
+        {savedAt > 0 ? <span className="dx-hint">已保存</span> : null}
+        {error ? <span className="dx-msg dx-msg--error">{error}</span> : null}
       </div>
     </div>
   )

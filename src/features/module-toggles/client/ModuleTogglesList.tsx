@@ -10,67 +10,15 @@
  *
  * 排序：开启的模块排在前面（与「插件设置」页签共用 sortModuleIds）。
  * 切换开关时用 FLIP 动画让行平滑移动到新位置（关闭的滑到下方、开启的滑到上方）。
+ *
+ * 视觉：行外观用 .dx-row（悬停洗色 + 行间发丝线），文字用 dx-row__title /
+ * dx-row__desc，开关用 dx-switch / dx-switch__thumb；内联 style 只留行内布局
+ * 与开关状态位移。行刻意不加 .dx-rise 入场动画：它 animation-fill-mode: both
+ * 会把 transform 钉在 none，盖住 FLIP 写入的行内 transform，只保留 dx-row。
  */
-import { useLayoutEffect, useRef, type CSSProperties } from 'react'
+import { useLayoutEffect, useRef } from 'react'
+import { ui } from '../../../client/design/index.js'
 import { MODULES, sortModuleIds } from './index.js'
-
-const rowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '12px',
-  padding: '10px 0',
-  display: 'flex',
-}
-
-const rowTextStyle: CSSProperties = {
-  flexDirection: 'column',
-  flex: 1,
-  gap: '2px',
-  minWidth: 0,
-  display: 'flex',
-}
-
-const rowTitleStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 14,
-  fontWeight: 500,
-  lineHeight: '20px',
-}
-
-const rowDescStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: 12,
-  lineHeight: '18px',
-}
-
-function switchStyle(on: boolean): CSSProperties {
-  return {
-    appearance: 'none',
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    border: on ? '0' : '1px solid var(--dsw-alias-border-l2)',
-    cursor: 'pointer',
-    flex: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0 3px',
-    background: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-module-platform)',
-    transition: 'background .16s, border-color .16s',
-  }
-}
-
-function thumbStyle(on: boolean): CSSProperties {
-  return {
-    width: 16,
-    height: 16,
-    borderRadius: '50%',
-    background: '#ffffff',
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
-    flex: 'none',
-    transform: on ? 'translateX(18px)' : 'translateX(0)',
-    transition: 'transform .16s',
-  }
-}
 
 /** 模块开关列表 props：状态与切换回调由父级注入。 */
 export interface ModuleTogglesListProps {
@@ -125,21 +73,23 @@ export function ModuleTogglesList({ states, onToggle }: ModuleTogglesListProps):
     <div ref={listRef}>
       {ids.map((id) => {
         const m = MODULES.find((x) => x.id === id)!
+        const on = states[m.id]
         return (
-          <div key={m.id} data-module-row={m.id} style={rowStyle}>
-            <div style={rowTextStyle}>
-              <div style={rowTitleStyle}>{m.label}</div>
-              <div style={rowDescStyle}>{m.description}</div>
+          <div key={m.id} className="dx-row" data-hover="true" data-module-row={m.id}>
+            <div style={{ ...ui.stack(2), ...ui.grow }}>
+              <div className="dx-row__title">{m.label}</div>
+              <div className="dx-row__desc">{m.description}</div>
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={states[m.id]}
+              aria-checked={on}
               aria-label={m.label}
-              style={switchStyle(states[m.id])}
+              className="dx-switch dx-focus dx-tap"
+              style={ui.switchTrack(on)}
               onClick={() => handleToggle(m.id)}
             >
-              <span style={thumbStyle(states[m.id])} />
+              <span className="dx-switch__thumb" style={ui.switchThumb(on)} />
             </button>
           </div>
         )

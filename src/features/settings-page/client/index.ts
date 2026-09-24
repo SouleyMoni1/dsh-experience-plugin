@@ -99,9 +99,9 @@ export function applyOpaqueBg(): void {
 /** 全屏设置页导航栏宽度（px，官方弹窗为 188）。 */
 const NAV_WIDTH = 240
 /** 全屏设置页内容区水平内边距（px，官方为 24）。 */
-const CONTENT_PAD = 32
+const CONTENT_PAD = 36
 /** 入场动画时长（ms）。 */
-const OPEN_MS = 180
+const OPEN_MS = 320
 
 /** 官方设置面板标题候选文案（zh / en），命中才判定为设置面板。 */
 const SETTINGS_TITLES = new Set(['设置', 'Settings'])
@@ -172,10 +172,12 @@ function applyFullscreen(chrome: SettingsChrome): void {
   // 背景不透明开关（跟随用户偏好，覆盖皮肤/主题的透明）
   applyOpaqueBg()
 
-  // 左侧导航加宽，更有「设置页」观感
+  // 左侧导航加宽 + 发丝分隔线 + 细滚动条，贴近 macOS「系统设置」的观感
   if (nav !== null) {
     nav.style.width = `${NAV_WIDTH}px`
     nav.style.flex = 'none'
+    nav.style.borderRight = '1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1))'
+    nav.classList.add('dx-scroll')
   }
 
   // 内容区撑满剩余宽度并加大留白
@@ -185,19 +187,21 @@ function applyFullscreen(chrome: SettingsChrome): void {
   }
   if (options !== null) {
     options.style.flex = '1'
+    options.style.minHeight = '0'
     options.style.padding = `0 ${CONTENT_PAD}px ${CONTENT_PAD}px`
+    options.classList.add('dx-scroll')
   }
 }
 
-/** 入场动画：淡入 + 轻微上浮（WAAPI 驱动，无视 CSS 优先级覆盖；尊重减少动态）。 */
+/** 入场动画：苹果弹簧曲线下的「放大 + 上浮 + 淡入」（WAAPI 驱动，无视 CSS 优先级；尊重减少动态）。 */
 function playOpen(panel: HTMLElement): void {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   panel.animate(
     [
-      { opacity: 0, transform: 'translateY(8px)' },
-      { opacity: 1, transform: 'translateY(0px)' },
+      { opacity: 0, transform: 'scale(0.988) translateY(10px)' },
+      { opacity: 1, transform: 'scale(1) translateY(0px)' },
     ],
-    { duration: OPEN_MS, easing: 'ease-out' },
+    { duration: OPEN_MS, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
   )
 }
 

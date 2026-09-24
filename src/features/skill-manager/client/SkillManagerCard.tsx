@@ -1,5 +1,5 @@
 /**
- * skill-manager 设置卡片 —— 渲染在设置页「日用优化」分区「插件设置」页签。
+ * skill-manager 设置卡片 —— 渲染在设置页「日用优化」分区的「Skills 管理」页签（bare）。
  *
  * 管理 $DSH_HOME/skills 下的技能：
  *   - 列表：已启用 + 已关闭（关闭 = 物理移入 skills/.disabled，dsh 不再发现）；
@@ -8,10 +8,15 @@
  *   - 导入：本地目录复制，或 SkillHub slug（skillhub CLI）。
  *
  * 数据与操作走 host 端 RPC 通道 /dsh-skill-manager（loopback）。
+ *
+ * 视觉：静态外观全部来自 .dx-* 类（技能行 dx-row、开关 dx-switch、表单
+ * dx-label / dx-input / dx-select、徽标 dx-badge），内联 style 只留布局与
+ * 错峰延迟；bare 模式外层只做纵向 flex + gap，不再套定宽内容列。
  */
 import { useEffect, useState, type CSSProperties, type JSX } from 'react'
 import type { ExperienceRpc } from '../../../client/rpc-transport.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { cx, ui } from '../../../client/design/index.js'
 import { ModuleCard } from '../../settings/client/ExperienceSettingsCard.js'
 
 /** RPC 通道（与 host 端 SKILL_MANAGER_RPC_CHANNEL 一致）。 */
@@ -43,145 +48,14 @@ interface Msg {
   text: string
 }
 
-const rowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '10px',
-  padding: '8px 0',
-  display: 'flex',
-}
+/** 行内标签：只写布局；字号/颜色在 .dx-label，这里抵消它的堆叠下边距。 */
+const labelInline: CSSProperties = { flex: 'none', marginBottom: 0 }
 
-const rowTextStyle: CSSProperties = {
-  flexDirection: 'column',
-  flex: 1,
-  gap: '2px',
-  minWidth: 0,
-  display: 'flex',
-}
+/** 行内输入框：只写布局；外观在 .dx-input。 */
+const fieldInline: CSSProperties = { flex: 1, minWidth: 120 }
 
-const rowTitleStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 13,
-  fontWeight: 500,
-  lineHeight: '20px',
-}
-
-const rowDescStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: 12,
-  lineHeight: '18px',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-}
-
-const badgeStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 4,
-  padding: '1px 5px',
-  fontSize: 11,
-  lineHeight: '16px',
-  flex: 'none',
-}
-
-const headerStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 13,
-  fontWeight: 600,
-  margin: '10px 0 2px',
-}
-
-const actionRowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '10px',
-  marginBottom: 6,
-  display: 'flex',
-}
-
-const linkBtnStyle: CSSProperties = {
-  font: 'inherit',
-  cursor: 'pointer',
-  color: 'var(--dsw-alias-label-primary)',
-  background: 'transparent',
-  border: 0,
-  padding: '2px 0',
-  fontSize: 13,
-  lineHeight: '20px',
-}
-
-const formStyle: CSSProperties = {
-  flexDirection: 'column',
-  gap: '8px',
-  padding: '10px',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 8,
-  marginBottom: 8,
-  display: 'flex',
-}
-
-const fieldRowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '8px',
-  display: 'flex',
-  flexWrap: 'wrap',
-}
-
-const labelStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 12,
-  lineHeight: '18px',
-  flex: 'none',
-}
-
-const inputStyle: CSSProperties = {
-  flex: 1,
-  minWidth: 120,
-  boxSizing: 'border-box',
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  background: 'var(--dsw-alias-bg-module-platform)',
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 13,
-  fontFamily: 'inherit',
-}
-
-const selectStyle: CSSProperties = { ...inputStyle, flex: 'none', minWidth: 100 }
-
-const msgStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: '20px',
-}
-
-function switchStyle(on: boolean): CSSProperties {
-  return {
-    appearance: 'none',
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    border: on ? '0' : '1px solid var(--dsw-alias-border-l2)',
-    cursor: 'pointer',
-    flex: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0 3px',
-    background: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-module-platform)',
-    transition: 'background .16s, border-color .16s',
-  }
-}
-
-function thumbStyle(on: boolean): CSSProperties {
-  return {
-    width: 16,
-    height: 16,
-    borderRadius: '50%',
-    background: '#ffffff',
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
-    flex: 'none',
-    transform: on ? 'translateX(18px)' : 'translateX(0)',
-    transition: 'transform .16s',
-  }
-}
+/** 行内下拉：只写布局（width:auto 抵消 .dx-select 的通栏宽度）；外观在 .dx-select。 */
+const selectInline: CSSProperties = { flex: 'none', width: 'auto', minWidth: 120 }
 
 /** 卡片 props：RPC 通道 + 文案。 */
 export interface SkillManagerCardProps {
@@ -296,105 +170,116 @@ export function SkillManagerCard({ rpc, t, disabled = false, bare = false }: Ski
     }
   }
 
-  const skillRow = (skill: ManagedSkill): JSX.Element => (
-    <div key={skill.name} style={rowStyle}>
-      <div style={rowTextStyle}>
-        <div style={rowTitleStyle}>{skill.name}</div>
-        <div style={rowDescStyle}>{skill.description || t('none')}</div>
+  /** 技能行：dx-row 承载外观与悬停，dx-rise + ui.stagger 做错峰入场。 */
+  const skillRow = (skill: ManagedSkill, index: number): JSX.Element => (
+    <div key={skill.name} className="dx-row dx-rise" style={ui.stagger(index)}>
+      <div style={{ ...ui.stack(2), ...ui.grow }}>
+        <div className="dx-row__title">{skill.name}</div>
+        <div className="dx-row__desc" style={ui.ellipsis}>{skill.description || t('none')}</div>
       </div>
-      <span style={badgeStyle}>{skill.kind === 'bundle' ? t('bundle') : t('flat')}</span>
+      <span className="dx-badge">{skill.kind === 'bundle' ? t('bundle') : t('flat')}</span>
       <button
         type="button"
         role="switch"
         aria-checked={skill.enabled}
         aria-label={skill.name}
         disabled={busy || disabled}
-        style={switchStyle(skill.enabled)}
+        className="dx-switch dx-focus dx-tap"
+        style={ui.switchTrack(skill.enabled)}
         onClick={() => void toggle(skill.name, !skill.enabled)}
       >
-        <span style={thumbStyle(skill.enabled)} />
+        <span className="dx-switch__thumb" style={ui.switchThumb(skill.enabled)} />
       </button>
     </div>
   )
 
   if (phase === 'loading') {
-    return <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('loading')}</div>
+    return <div className="dx-empty">{t('loading')}</div>
   }
   if (phase === 'error') {
-    return <div style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 13 }}>{t('loadFailed') + error}</div>
+    return <div className="dx-msg dx-msg--error">{t('loadFailed') + error}</div>
   }
 
   return (
     <ModuleCard title={t('nav')} description={t('cardDescription')} disabled={disabled} bare={bare}>
-      <div style={actionRowStyle}>
-        <button type="button" style={linkBtnStyle} onClick={() => { setShowAdd(!showAdd); setShowImport(false) }}>
-          {showAdd ? '✕ ' : '+ '}{t('addTab')}
-        </button>
-        <button type="button" style={linkBtnStyle} onClick={() => { setShowImport(!showImport); setShowAdd(false) }}>
-          {showImport ? '✕ ' : '⇩ '}{t('importTab')}
-        </button>
+      {/* bare 模式的外层：只做纵向 flex + gap */}
+      <div style={ui.stack(10)}>
+        <div style={ui.hstack(8)}>
+          <button type="button" className="dx-btn dx-btn--link dx-press dx-focus" onClick={() => { setShowAdd(!showAdd); setShowImport(false) }}>
+            {showAdd ? '✕ ' : '+ '}{t('addTab')}
+          </button>
+          <button type="button" className="dx-btn dx-btn--link dx-press dx-focus" onClick={() => { setShowImport(!showImport); setShowAdd(false) }}>
+            {showImport ? '✕ ' : '⇩ '}{t('importTab')}
+          </button>
+        </div>
+
+        {showAdd ? (
+          <div style={ui.stack(2)}>
+            <div className="dx-row">
+              <span className="dx-label" style={labelInline}>{t('addName')}</span>
+              <input value={addName} placeholder="e.g. my-skill" aria-label={t('addName')} className="dx-input dx-focus" style={fieldInline} onChange={(e) => setAddName(e.target.value)} />
+            </div>
+            <div className="dx-row">
+              <span className="dx-label" style={labelInline}>{t('addDesc')}</span>
+              <input value={addDesc} placeholder={t('addDescPlaceholder')} aria-label={t('addDesc')} className="dx-input dx-focus" style={fieldInline} onChange={(e) => setAddDesc(e.target.value)} />
+            </div>
+            <div>
+              <button type="button" disabled={busy || disabled} className="dx-btn dx-btn--primary dx-press dx-focus" onClick={() => void addSkill()}>
+                {busy ? t('adding') : t('addBtn')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {showImport ? (
+          <div style={ui.stack(2)}>
+            <div className="dx-row">
+              <span className="dx-label" style={labelInline}>{t('importSourceLocal')}</span>
+              <select
+                value={importSource}
+                aria-label="import source"
+                className="dx-select dx-focus"
+                style={selectInline}
+                onChange={(e) => setImportSource(e.target.value === 'skillhub' ? 'skillhub' : 'local')}
+              >
+                <option value="local">{t('importSourceLocal')}</option>
+                <option value="skillhub">{t('importSourceSkillhub')}</option>
+              </select>
+            </div>
+            <div className="dx-row">
+              <input
+                value={importValue}
+                placeholder={importSource === 'local' ? t('importPathPlaceholder') : t('importSlugPlaceholder')}
+                aria-label="import value"
+                className="dx-input dx-focus"
+                style={fieldInline}
+                onChange={(e) => setImportValue(e.target.value)}
+              />
+            </div>
+            <div>
+              <button type="button" disabled={busy || disabled} className="dx-btn dx-btn--primary dx-press dx-focus" onClick={() => void importSkill()}>
+                {busy ? t('importing') : t('importBtn')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {msg !== null ? (
+          <div className={cx('dx-msg', msg.kind === 'ok' ? 'dx-msg--ok' : 'dx-msg--error')}>{msg.text}</div>
+        ) : null}
+
+        <div style={ui.stack(4)}>
+          <div className="dx-label">{t('enabledHeader')} ({view?.skills.length ?? 0})</div>
+          {(view?.skills.length ?? 0) === 0 ? <div className="dx-empty">{t('none')}</div> : null}
+          {(view?.skills ?? []).map((skill, i) => skillRow(skill, i))}
+        </div>
+
+        <div style={ui.stack(4)}>
+          <div className="dx-label">{t('disabledHeader')} ({view?.disabled.length ?? 0})</div>
+          {(view?.disabled.length ?? 0) === 0 ? <div className="dx-empty">{t('none')}</div> : null}
+          {(view?.disabled ?? []).map((skill, i) => skillRow(skill, i))}
+        </div>
       </div>
-
-      {showAdd ? (
-        <div style={formStyle}>
-          <div style={fieldRowStyle}>
-            <span style={labelStyle}>{t('addName')}</span>
-            <input value={addName} placeholder="e.g. my-skill" aria-label={t('addName')} style={inputStyle} onChange={(e) => setAddName(e.target.value)} />
-          </div>
-          <div style={fieldRowStyle}>
-            <span style={labelStyle}>{t('addDesc')}</span>
-            <input value={addDesc} placeholder={t('addDescPlaceholder')} aria-label={t('addDesc')} style={inputStyle} onChange={(e) => setAddDesc(e.target.value)} />
-          </div>
-          <div>
-            <button type="button" disabled={busy || disabled} style={{ ...linkBtnStyle, color: 'var(--dsw-alias-brand-primary)' }} onClick={() => void addSkill()}>
-              {busy ? t('adding') : t('addBtn')}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {showImport ? (
-        <div style={formStyle}>
-          <div style={fieldRowStyle}>
-            <span style={labelStyle}>{t('importSourceLocal')}</span>
-            <select
-              value={importSource}
-              aria-label="import source"
-              style={selectStyle}
-              onChange={(e) => setImportSource(e.target.value === 'skillhub' ? 'skillhub' : 'local')}
-            >
-              <option value="local">{t('importSourceLocal')}</option>
-              <option value="skillhub">{t('importSourceSkillhub')}</option>
-            </select>
-          </div>
-          <div style={fieldRowStyle}>
-            <input
-              value={importValue}
-              placeholder={importSource === 'local' ? t('importPathPlaceholder') : t('importSlugPlaceholder')}
-              aria-label="import value"
-              style={inputStyle}
-              onChange={(e) => setImportValue(e.target.value)}
-            />
-          </div>
-          <div>
-            <button type="button" disabled={busy || disabled} style={{ ...linkBtnStyle, color: 'var(--dsw-alias-brand-primary)' }} onClick={() => void importSkill()}>
-              {busy ? t('importing') : t('importBtn')}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {msg !== null ? (
-        <div style={{ ...msgStyle, color: msg.kind === 'ok' ? '#12965b' : 'var(--dsw-alias-state-error-primary)' }}>{msg.text}</div>
-      ) : null}
-
-      <div style={headerStyle}>{t('enabledHeader')} ({view?.skills.length ?? 0})</div>
-      {(view?.skills.length ?? 0) === 0 ? <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('none')}</div> : null}
-      {(view?.skills ?? []).map(skillRow)}
-
-      <div style={headerStyle}>{t('disabledHeader')} ({view?.disabled.length ?? 0})</div>
-      {(view?.disabled.length ?? 0) === 0 ? <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('none')}</div> : null}
-      {(view?.disabled ?? []).map(skillRow)}
     </ModuleCard>
   )
 }

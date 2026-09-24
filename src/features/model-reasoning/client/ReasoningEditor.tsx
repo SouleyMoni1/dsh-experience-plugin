@@ -8,11 +8,17 @@
  *   2. 模型等级：llm-pi-ai 下每个模型的等级开关（可折叠），保存时整体写回。
  *   3. 模型输入能力：每个模型的「文字 / 视觉」声明，写入 llm-pi-ai 的 `input`。
  *
+ * 视觉：静态外观全部来自 .dx-* 类（分组 dx-card + dx-card__header / dx-card__body /
+ * dx-card__chevron、行 dx-row、表单 dx-label / dx-input / dx-check、徽标 dx-badge、
+ * 按钮 dx-btn、提示 dx-hint / dx-msg / dx-empty），内联 style 只留布局（flex / gap /
+ * minWidth / boxSizing / 溢出）与折叠箭头旋转（ui.chevron）；列表项以 dx-rise 错峰浮入。
+ *
  * 数据流与官方 Models 页一致：settings.describe → 编辑 → settings.update
  * 深合并 patch（数组整体替换、其余字段保留、revision 冲突保护）。
  */
-import { useEffect, useRef, useState, type JSX } from 'react'
-import { Button, Input } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useRef, useState, type CSSProperties, type JSX, type SyntheticEvent } from 'react'
+import { IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
+import { cx, ui } from '../../../client/design/index.js'
 import type { ExperienceRpc } from '../../../client/rpc-transport.js'
 import type { SettingsAccess } from '../../../client/settings-access.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -184,6 +190,15 @@ const AUTO_REFRESH_DELAY_MS = 900
 /** 页面状态。 */
 type Phase = 'loading' | 'ready' | 'error'
 
+/** 行内表单标签：外观在 .dx-label，这里只抵消它的堆叠下边距（行内布局）。 */
+const labelInline: CSSProperties = { marginBottom: 0 }
+
+/** 标题：字号 / 字重 / 颜色在 .dx-card__title，这里只抵消 h2 的默认外边距。 */
+const titleInline: CSSProperties = { margin: 0 }
+
+/** 长 id / 名称：只处理溢出布局，文本样式在 .dx-row__title / .dx-hint。 */
+const wrapAnywhere: CSSProperties = { overflowWrap: 'anywhere', minWidth: 0 }
+
 /** 等级开关组（系列或模型共用；wire 固定取等级名，不提供输入框）。 */
 function EffortsChips(props: {
   efforts: ModelDraft['efforts']
@@ -198,15 +213,15 @@ function EffortsChips(props: {
         const entry = efforts[level]
         const enabled = entry !== undefined && entry.enabled
         return (
-          <label key={level} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+          <label key={level} style={{ ...ui.hstack(6), cursor: 'pointer', userSelect: 'none' }}>
             <input
               type="checkbox"
+              className="dx-check dx-focus"
               checked={enabled}
               disabled={disabled}
               onChange={() => onToggle(level)}
-              style={{ margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' }}
             />
-            <span style={{ fontSize: 13, lineHeight: '20px' }}>{t(LEVEL_KEY[level])}</span>
+            <span className="dx-label" style={labelInline}>{t(LEVEL_KEY[level])}</span>
           </label>
         )
       })}
@@ -223,22 +238,20 @@ function ModalityChips(props: {
 }): JSX.Element {
   const { input, disabled, onToggle, t } = props
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+    <div style={{ ...ui.hstack(8), flexWrap: 'wrap' }}>
       {MODALITIES.map((modality) => (
-        <label key={modality} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+        <label key={modality} style={{ ...ui.hstack(6), cursor: 'pointer', userSelect: 'none' }}>
           <input
             type="checkbox"
+            className="dx-check dx-focus"
             checked={input.includes(modality)}
             disabled={disabled}
             onChange={() => onToggle(modality)}
-            style={{ margin: 0, accentColor: 'var(--dsw-alias-brand-primary)' }}
           />
-          <span style={{ fontSize: 13, lineHeight: '20px' }}>{t(MODALITY_KEY[modality])}</span>
+          <span className="dx-label" style={labelInline}>{t(MODALITY_KEY[modality])}</span>
         </label>
       ))}
-      {input.length === 0 && (
-        <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modalityDefault')}</span>
-      )}
+      {input.length === 0 && <span className="dx-hint">{t('modalityDefault')}</span>}
     </div>
   )
 }
@@ -258,6 +271,13 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState(0)
   const [saveError, setSaveError] = useState<string>('')
+  /** 折叠区开合：只驱动箭头旋转与卡片阴影，实际开合仍由原生 <details> 承担。 */
+  const [openKeys, setOpenKeys] = useState<Record<string, boolean>>({})
+  const isOpen = (key: string, defaultOpen: boolean): boolean => openKeys[key] ?? defaultOpen
+  const recordToggle = (key: string) => (event: SyntheticEvent<HTMLDetailsElement>): void => {
+    const open = event.currentTarget.open
+    setOpenKeys((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }))
+  }
   /** 是否有未保存的本地编辑（有编辑时自动刷新应让位，避免冲掉用户改动）。 */
   const dirtyRef = useRef(false)
   const markDirty = (): void => {
@@ -556,194 +576,233 @@ export function ReasoningEditor(props: ReasoningEditorProps): JSX.Element | null
   }
 
   if (phase === 'loading') {
-    return <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 14 }}>{t('saving')}</div>
+    return <div className="dx-empty">{t('saving')}</div>
   }
   if (phase === 'error') {
-    return <div style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 14 }}>{t('loadError', { message: error })}</div>
+    return <div className="dx-msg dx-msg--error">{t('loadError', { message: error })}</div>
   }
 
   return (
-    <section style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 12, color: 'var(--dsw-alias-label-primary)' }}>
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '24px' }}>{t('title')}</h2>
-      <p style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('intro')}</p>
+    <section className="dx-section" style={ui.stack(12)}>
+      <h2 className="dx-card__title" style={titleInline}>{t('title')}</h2>
+      <p className="dx-section__intro">{t('intro')}</p>
       {!writable && (
-        <p style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-warn-label)' }}>{t('readOnly')}</p>
+        <div className="dx-msg">{t('readOnly')}</div>
       )}
 
       {/* 系列配置区（可折叠，默认展开） */}
-      <details open style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: '12px 14px' }}>
-        <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 500, lineHeight: '22px', userSelect: 'none' }}>
-          {t('familiesTitle')}
+      <details
+        open={isOpen('families', true)}
+        onToggle={recordToggle('families')}
+        className="dx-card"
+        data-hover="true"
+        data-open={isOpen('families', true)}
+      >
+        <summary className="dx-card__header dx-focus dx-tap" style={{ boxSizing: 'border-box', userSelect: 'none' }}>
+          <span className="dx-card__title" style={ui.grow}>{t('familiesTitle')}</span>
+          <span className="dx-card__chevron" aria-hidden="true" style={ui.chevron(isOpen('families', true))}>
+            <IconChevronDownOutlineMedium />
+          </span>
         </summary>
-        <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('familiesIntro')}</p>
+        <div className="dx-card__body" style={ui.stack(14)}>
+          <p className="dx-section__intro">{t('familiesIntro')}</p>
 
-        {/* 默认配置 */}
-        <div style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 8, marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px' }}>{t('defaultEfforts')}</span>
+          {/* 默认配置 */}
+          <div>
+            <div className="dx-label">{t('defaultEfforts')}</div>
+            <EffortsChips efforts={defaultEfforts} disabled={!writable || saving} onToggle={toggleDefaultEffort} t={t} />
           </div>
-          <EffortsChips efforts={defaultEfforts} disabled={!writable || saving} onToggle={toggleDefaultEffort} t={t} />
-        </div>
 
-        {/* 系列列表 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-          {families.map((family, index) => (
-            <details key={family.id} style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 8 }}>
-              <summary style={{ cursor: 'pointer', fontSize: 13, lineHeight: '20px', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontWeight: 500 }}>{family.label || family.pattern || ('family-' + (index + 1))}</span>
-                <span style={{ fontSize: 11, color: 'var(--dsw-alias-label-tertiary)' }}>{family.pattern}</span>
-              </summary>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('familyName')}</span>
-                    <Input
-                      value={family.label}
+          {/* 系列列表 */}
+          <div style={ui.stack(8)}>
+            {families.map((family, index) => (
+              <details
+                key={family.id}
+                className="dx-rise"
+                style={ui.stagger(index)}
+                open={isOpen(family.id, false)}
+                onToggle={recordToggle(family.id)}
+              >
+                <summary className="dx-row dx-focus dx-tap dx-press" data-hover="true" style={{ cursor: 'pointer', userSelect: 'none' }}>
+                  <span className="dx-row__title">{family.label || family.pattern || ('family-' + (index + 1))}</span>
+                  <span className="dx-hint" style={{ ...ui.grow, ...ui.ellipsis }}>{family.pattern}</span>
+                  <span className="dx-card__chevron" aria-hidden="true" style={ui.chevron(isOpen(family.id, false))}>
+                    <IconChevronDownOutlineMedium />
+                  </span>
+                </summary>
+                <div style={ui.stack(8)}>
+                  <div style={ui.hstack(8)}>
+                    <label style={{ ...ui.stack(0), flex: 1, minWidth: 0 }}>
+                      <span className="dx-label">{t('familyName')}</span>
+                      <input
+                        className="dx-input dx-focus"
+                        value={family.label}
+                        disabled={!writable || saving}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          markDirty()
+                          setFamilies((prev) => {
+                            const next = structuredClone(prev)
+                            next[index] = { ...next[index], label: value }
+                            return next
+                          })
+                        }}
+                      />
+                    </label>
+                    <label style={{ ...ui.stack(0), flex: 1, minWidth: 0 }}>
+                      <span className="dx-label">{t('familyPattern')}</span>
+                      <input
+                        className="dx-input dx-focus"
+                        value={family.pattern}
+                        placeholder={t('familyPatternPlaceholder')}
+                        disabled={!writable || saving}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          markDirty()
+                          setFamilies((prev) => {
+                            const next = structuredClone(prev)
+                            next[index] = { ...next[index], pattern: value }
+                            return next
+                          })
+                        }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="dx-btn dx-btn--danger dx-btn--sm dx-press dx-focus"
                       disabled={!writable || saving}
-                      onChange={(event) => {
-                        const value = event.target.value
-                        markDirty()
-                        setFamilies((prev) => {
-                          const next = structuredClone(prev)
-                          next[index] = { ...next[index], label: value }
-                          return next
-                        })
-                      }}
-                      style={{ height: 30, fontSize: 13 }}
-                    />
-                  </label>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                    <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('familyPattern')}</span>
-                    <Input
-                      value={family.pattern}
-                      placeholder={t('familyPatternPlaceholder')}
-                      disabled={!writable || saving}
-                      onChange={(event) => {
-                        const value = event.target.value
-                        markDirty()
-                        setFamilies((prev) => {
-                          const next = structuredClone(prev)
-                          next[index] = { ...next[index], pattern: value }
-                          return next
-                        })
-                      }}
-                      style={{ height: 30, fontSize: 13 }}
-                    />
-                  </label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!writable || saving}
-                    onClick={() => removeFamily(index)}
-                    style={{ color: 'var(--dsw-alias-state-error-primary)', marginTop: 16 }}
-                  >
-                    {t('deleteFamily')}
-                  </Button>
+                      onClick={() => removeFamily(index)}
+                      style={{ alignSelf: 'flex-end' }}
+                    >
+                      {t('deleteFamily')}
+                    </button>
+                  </div>
+                  <EffortsChips efforts={effortsState(family.efforts)} disabled={!writable || saving} onToggle={(level) => toggleFamilyEffort(index, level)} t={t} />
+                  <div>
+                    <div className="dx-label">{t('modalities')}</div>
+                    <ModalityChips input={normalizeModalities(family.input)} disabled={!writable || saving} onToggle={(modality) => toggleFamilyModality(index, modality)} t={t} />
+                  </div>
                 </div>
-                <EffortsChips efforts={effortsState(family.efforts)} disabled={!writable || saving} onToggle={(level) => toggleFamilyEffort(index, level)} t={t} />
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modalities')}</span>
-                  <ModalityChips input={normalizeModalities(family.input)} disabled={!writable || saving} onToggle={(modality) => toggleFamilyModality(index, modality)} t={t} />
-                </div>
-              </div>
-            </details>
-          ))}
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <Button variant="outline" size="md" disabled={!writable || saving} onClick={addFamily}>{t('addFamily')}</Button>
+              </details>
+            ))}
+          </div>
+
+          <div>
+            <button type="button" className="dx-btn dx-btn--secondary dx-press dx-focus" disabled={!writable || saving} onClick={addFamily}>{t('addFamily')}</button>
+          </div>
         </div>
       </details>
 
       {/* 模型等级区 */}
-      <details open style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: '12px 14px' }}>
-        <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 500, lineHeight: '22px', userSelect: 'none' }}>
-          {t('modelsTitle')}
+      <details
+        open={isOpen('models', true)}
+        onToggle={recordToggle('models')}
+        className="dx-card"
+        data-hover="true"
+        data-open={isOpen('models', true)}
+      >
+        <summary className="dx-card__header dx-focus dx-tap" style={{ boxSizing: 'border-box', userSelect: 'none' }}>
+          <span className="dx-card__title" style={ui.grow}>{t('modelsTitle')}</span>
+          <span className="dx-card__chevron" aria-hidden="true" style={ui.chevron(isOpen('models', true))}>
+            <IconChevronDownOutlineMedium />
+          </span>
         </summary>
-        <p style={{ margin: '6px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modelsIntro')}</p>
-        {rows.length === 0 ? (
-          <p style={{ margin: '12px 0 0', fontSize: 14, lineHeight: '22px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('empty')}</p>
-        ) : (
-          <ul style={{ listStyle: 'none', margin: '12px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {rows.map((row, rowIndex) => (
-              <li key={row.route} style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 12, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <details open>
-                  <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, userSelect: 'none' }}>
-                    <span style={{ fontSize: 14, fontWeight: 500, lineHeight: '22px' }}>{row.providerDisplay}</span>
-                    <span style={{ border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 4, padding: '1px 6px', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-secondary)' }}>{row.route}</span>
-                    {row.api !== undefined && (
-                      <span style={{ border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 4, padding: '1px 6px', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-secondary)' }}>{row.api}</span>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={!writable || saving}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        refreshProvider(rowIndex)
-                      }}
-                      style={{ marginLeft: 'auto', flexShrink: 0 }}
-                    >
-                      {t('refreshProvider')}
-                    </Button>
-                  </summary>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
-                    {row.models.map((model, modelIndex) => {
-                      const matched = matchFamily(model.id, families)
-                      return (
-                        <details key={model.id} style={{ border: '1px solid var(--dsw-alias-border-l2)', borderRadius: 8, padding: 8 }}>
-                          <summary style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, userSelect: 'none' }}>
-                            <span style={{ fontSize: 13, fontWeight: 500, lineHeight: '20px', fontFamily: 'var(--ds-font-family-code)', overflowWrap: 'anywhere' }}>{model.id}</span>
-                            {model.name !== undefined && model.name !== model.id && (
-                              <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-tertiary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</span>
-                            )}
-                            {matched !== undefined ? (
-                              <span style={{ border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 4, padding: '1px 6px', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-secondary)', marginLeft: 'auto' }}>
-                                {t('matchedFamily')}: {matched.label}
+        <div className="dx-card__body" style={ui.stack(14)}>
+          <p className="dx-section__intro">{t('modelsIntro')}</p>
+          {rows.length === 0 ? (
+            <div className="dx-empty">{t('empty')}</div>
+          ) : (
+            <div style={ui.stack(10)}>
+              {rows.map((row, rowIndex) => (
+                <div key={row.route} className="dx-rise" style={ui.stagger(rowIndex)}>
+                  <details open={isOpen(row.route, true)} onToggle={recordToggle(row.route)}>
+                    <summary className="dx-row dx-focus dx-tap dx-press" data-hover="true" style={{ cursor: 'pointer', userSelect: 'none' }}>
+                      <span className="dx-row__title">{row.providerDisplay}</span>
+                      <span className="dx-badge">{row.route}</span>
+                      {row.api !== undefined && (
+                        <span className="dx-badge">{row.api}</span>
+                      )}
+                      <span style={ui.grow} />
+                      <button
+                        type="button"
+                        className="dx-btn dx-btn--ghost dx-btn--sm dx-press dx-focus"
+                        disabled={!writable || saving}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          refreshProvider(rowIndex)
+                        }}
+                        style={{ flexShrink: 0 }}
+                      >
+                        {t('refreshProvider')}
+                      </button>
+                      <span className="dx-card__chevron" aria-hidden="true" style={ui.chevron(isOpen(row.route, true))}>
+                        <IconChevronDownOutlineMedium />
+                      </span>
+                    </summary>
+                    <div style={ui.stack(8)}>
+                      {row.models.map((model, modelIndex) => {
+                        const matched = matchFamily(model.id, families)
+                        const openKey = row.route + '/' + model.id
+                        return (
+                          <details
+                            key={model.id}
+                            className="dx-rise"
+                            style={ui.stagger(modelIndex)}
+                            open={isOpen(openKey, false)}
+                            onToggle={recordToggle(openKey)}
+                          >
+                            <summary className="dx-row dx-focus dx-tap dx-press" data-hover="true" style={{ cursor: 'pointer', userSelect: 'none' }}>
+                              <span className="dx-mono dx-row__title" style={wrapAnywhere}>{model.id}</span>
+                              {model.name !== undefined && model.name !== model.id && (
+                                <span className="dx-hint" style={{ ...ui.ellipsis, minWidth: 0 }}>{model.name}</span>
+                              )}
+                              <span style={ui.grow} />
+                              <span className={cx('dx-badge', matched === undefined && 'dx-badge--warn')} style={{ ...ui.ellipsis, flexShrink: 1 }}>
+                                {matched !== undefined ? `${t('matchedFamily')}: ${matched.label}` : t('unmatched')}
                               </span>
-                            ) : (
-                              <span style={{ border: '1px solid var(--dsw-alias-border-l3)', borderRadius: 4, padding: '1px 6px', fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-state-warn-label)', marginLeft: 'auto' }}>
-                                {t('unmatched')}
+                              <span className="dx-card__chevron" aria-hidden="true" style={ui.chevron(isOpen(openKey, false))}>
+                                <IconChevronDownOutlineMedium />
                               </span>
-                            )}
-                          </summary>
-                          <div style={{ paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            <EffortsChips efforts={model.efforts} disabled={!writable || saving} onToggle={(level) => toggleLevel(rowIndex, modelIndex, level)} t={t} />
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              <span style={{ fontSize: 11, lineHeight: '16px', color: 'var(--dsw-alias-label-tertiary)' }}>{t('modalities')}</span>
-                              <ModalityChips input={model.input} disabled={!writable || saving} onToggle={(modality) => toggleModelModality(rowIndex, modelIndex, modality)} t={t} />
+                            </summary>
+                            <div style={ui.stack(8)}>
+                              <EffortsChips efforts={model.efforts} disabled={!writable || saving} onToggle={(level) => toggleLevel(rowIndex, modelIndex, level)} t={t} />
+                              <div>
+                                <div className="dx-label">{t('modalities')}</div>
+                                <ModalityChips input={model.input} disabled={!writable || saving} onToggle={(modality) => toggleModelModality(rowIndex, modelIndex, modality)} t={t} />
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <button type="button" className="dx-btn dx-btn--ghost dx-btn--sm dx-press dx-focus" disabled={!writable || saving} onClick={() => refreshModelFromFamily(rowIndex, modelIndex)}>
+                                  {t('refreshFamily')}
+                                </button>
+                              </div>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <Button variant="ghost" size="sm" disabled={!writable || saving} onClick={() => refreshModelFromFamily(rowIndex, modelIndex)}>
-                                {t('refreshFamily')}
-                              </Button>
-                            </div>
-                          </div>
-                        </details>
-                      )
-                    })}
-                  </div>
-                </details>
-              </li>
-            ))}
-          </ul>
-        )}
+                          </details>
+                        )
+                      })}
+                    </div>
+                  </details>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </details>
 
       {/* 底部操作 */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+      <div style={{ ...ui.hstack(8), justifyContent: 'flex-end' }}>
         {saveError !== '' && (
-          <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-error-primary)' }}>{t('saveError', { message: saveError })}</span>
+          <span className="dx-msg dx-msg--error">{t('saveError', { message: saveError })}</span>
         )}
         {savedAt !== 0 && saveError === '' && (
-          <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-state-success-primary)' }}>{t('saved')}</span>
+          <span className="dx-msg dx-msg--ok">{t('saved')}</span>
         )}
         {close !== undefined && (
-          <Button variant="ghost" size="md" disabled={!writable || saving} onClick={close}>{t('cancel')}</Button>
+          <button type="button" className="dx-btn dx-btn--ghost dx-press dx-focus" disabled={!writable || saving} onClick={close}>{t('cancel')}</button>
         )}
-        <Button variant="primary" size="md" disabled={!writable || saving} onClick={() => void save()}>
+        <button type="button" className="dx-btn dx-btn--primary dx-press dx-focus" disabled={!writable || saving} onClick={() => void save()}>
           {saving ? t('saving') : t('save')}
-        </Button>
+        </button>
       </div>
     </section>
   )

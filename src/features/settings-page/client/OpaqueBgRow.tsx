@@ -9,71 +9,11 @@
  * 状态持久化在 localStorage，与 settings-page 模块共享同一份读取逻辑。
  */
 import { useState } from 'react'
-import type { CSSProperties } from 'react'
+import { ui } from '../../../client/design/index.js'
 import { applyOpaqueBg, OPAQUE_BG_KEY, readStoredOpaqueBg } from './index.js'
 import { ModuleCard } from '../../settings/client/ExperienceSettingsCard.js'
 
-const rowStyle: CSSProperties = {
-  borderBottom: '1px solid var(--dsw-alias-border-l2)',
-  alignItems: 'center',
-  gap: '8px',
-  padding: '16px 0',
-  display: 'flex',
-}
-
-const textStyle: CSSProperties = {
-  flexDirection: 'column',
-  flex: 1,
-  gap: '4px',
-  minWidth: 0,
-  paddingRight: '48px',
-  display: 'flex',
-}
-
-const titleStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: '14px',
-  fontWeight: 400,
-  lineHeight: '22px',
-}
-
-const descStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: '12px',
-  lineHeight: '18px',
-}
-
-function switchStyle(on: boolean): CSSProperties {
-  return {
-    appearance: 'none',
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    border: '0',
-    cursor: 'pointer',
-    flex: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0 3px',
-    background: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-module-platform)',
-    transition: 'background .16s',
-  }
-}
-
-function thumbStyle(on: boolean): CSSProperties {
-  return {
-    width: 16,
-    height: 16,
-    borderRadius: '50%',
-    background: '#ffffff',
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
-    flex: 'none',
-    transform: on ? 'translateX(18px)' : 'translateX(0)',
-    transition: 'transform .16s',
-  }
-}
-
-/** 通用设置区一行：开关 + 说明。 */
+/** 通用设置区一行：iOS 开关 + 说明文字。 */
 export function OpaqueBgRow({ disabled = false }: { disabled?: boolean }): any {
   const [on, setOn] = useState(readStoredOpaqueBg())
 
@@ -91,20 +31,21 @@ export function OpaqueBgRow({ disabled = false }: { disabled?: boolean }): any {
 
   return (
     <ModuleCard title="设置页背景不透明" description="开启后强制覆盖皮肤/主题的透明效果" disabled={disabled}>
-      <div style={rowStyle}>
-        <div style={textStyle}>
-          <div style={titleStyle}>设置页背景不透明</div>
-          <div style={descStyle}>开启后强制覆盖皮肤/主题的透明效果</div>
+      <div className="dx-row" style={{ marginTop: -6, marginBottom: -6 }}>
+        <div style={ui.grow}>
+          <div className="dx-row__title">设置页背景不透明</div>
+          <div className="dx-row__desc">开启后强制覆盖皮肤/主题的透明效果</div>
         </div>
         <button
           type="button"
           role="switch"
           aria-checked={on}
           aria-label="设置页背景不透明"
-          style={switchStyle(on)}
+          className="dx-switch dx-focus dx-tap"
+          style={ui.switchTrack(on)}
           onClick={toggle}
         >
-          <span style={thumbStyle(on)} />
+          <span className="dx-switch__thumb" style={ui.switchThumb(on)} />
         </button>
       </div>
     </ModuleCard>

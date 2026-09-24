@@ -120,10 +120,12 @@ host 与浏览器半区共用**一条**精确 Fetch 路由 `/api/dsh-experience-
 - `settings/`：统一配置卡片
 - `rpc-channel.ts`：host 侧唯一 RPC 入口路由（`connection.fetch.register`）
 
-浏览器半区另在 `src/client/` 提供两个跨功能基础设施：
+浏览器半区另在 `src/client/` 提供三个跨功能基础设施：
 
 - `rpc-transport.ts`：`createExperienceRpc()`，与 host 入口路由配套的 RPC 调用器
 - `settings-access.ts`：`settingsScope` 访问面封装（`describe` / `update` / `mutate`）
+- `design/`：客户端界面设计系统（Apple HIG 取向的设计令牌 + `.dx-*` 类样式层），
+  说明见 [docs/ui-design-system.md](docs/ui-design-system.md)；所有设置界面统一使用它
 
 ## 本地开发与部署（重要）
 

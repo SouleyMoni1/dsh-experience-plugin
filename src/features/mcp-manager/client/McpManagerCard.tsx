@@ -8,10 +8,16 @@
  *   - 导入：粘贴 .mcp.json servers 表 / 单个服务器配置 / JSON 数组。
  *
  * 数据与操作走 host 端 RPC 通道 /dsh-mcp-manager（loopback）。
+ *
+ * 视觉：静态外观全部来自 src/client/design/styles.ts 的 .dx-* 类（列表行 dx-row、
+ * 徽标 dx-badge、开关 dx-switch、表单 dx-input/dx-select/dx-textarea、按钮 dx-btn），
+ * 内联 style 只留布局（flex/gap/width…）与随状态变化的开关位移；bare 模式作为独立
+ * 页签直接渲染，外层只有纵向 flex + gap，不再套定宽（分区已限定 980px 内容列）。
  */
 import { useEffect, useState, type CSSProperties, type JSX } from 'react'
 import type { ExperienceRpc } from '../../../client/rpc-transport.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import { cx, ui } from '../../../client/design/index.js'
 import { ModuleCard } from '../../settings/client/ExperienceSettingsCard.js'
 
 /** RPC 通道（与 host 端 MCP_MANAGER_RPC_CHANNEL 一致）。*/
@@ -60,168 +66,17 @@ interface Msg {
   text: string
 }
 
-const rowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '10px',
-  padding: '8px 0',
-  display: 'flex',
-}
+/** 表单字段行：横向排列 + 换行（外观全在 .dx-* 类里，这里只留布局）。*/
+const fieldRowStyle: CSSProperties = { ...ui.hstack(8), flexWrap: 'wrap' }
 
-const rowTextStyle: CSSProperties = {
-  flexDirection: 'column',
-  flex: 1,
-  gap: '2px',
-  minWidth: 0,
-  display: 'flex',
-}
+/** 字段标签：不参与伸缩，固定最小宽（静态外观由 dx-label 承担）。*/
+const fieldLabelStyle: CSSProperties = { margin: 0, flex: 'none', minWidth: 56 }
 
-const rowTitleStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 13,
-  fontWeight: 500,
-  lineHeight: '20px',
-}
+/** 文本输入：吃掉剩余宽度（dx-input 自带 width:100%，用 flex-basis 接管）。*/
+const fieldInputStyle: CSSProperties = { flex: 1, minWidth: 120 }
 
-const rowDescStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: 12,
-  lineHeight: '18px',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-}
-
-const badgeStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 4,
-  padding: '1px 5px',
-  fontSize: 11,
-  lineHeight: '16px',
-  flex: 'none',
-}
-
-const liveBadgeStyle: CSSProperties = {
-  ...badgeStyle,
-  color: 'var(--dsw-alias-brand-primary)',
-  borderColor: 'var(--dsw-alias-brand-primary)',
-}
-
-const headerStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 13,
-  fontWeight: 600,
-  margin: '10px 0 2px',
-}
-
-const actionRowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '10px',
-  marginBottom: 6,
-  display: 'flex',
-}
-
-const linkBtnStyle: CSSProperties = {
-  font: 'inherit',
-  cursor: 'pointer',
-  color: 'var(--dsw-alias-label-primary)',
-  background: 'transparent',
-  border: 0,
-  padding: '2px 0',
-  fontSize: 13,
-  lineHeight: '20px',
-}
-
-const formStyle: CSSProperties = {
-  flexDirection: 'column',
-  gap: '8px',
-  padding: '10px',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 8,
-  marginBottom: 8,
-  display: 'flex',
-}
-
-const fieldRowStyle: CSSProperties = {
-  alignItems: 'center',
-  gap: '8px',
-  display: 'flex',
-  flexWrap: 'wrap',
-}
-
-const labelStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-secondary)',
-  fontSize: 12,
-  lineHeight: '18px',
-  flex: 'none',
-  minWidth: 56,
-}
-
-const inputStyle: CSSProperties = {
-  flex: 1,
-  minWidth: 120,
-  boxSizing: 'border-box',
-  padding: '6px 8px',
-  borderRadius: 8,
-  border: '1px solid var(--dsw-alias-border-l2)',
-  background: 'var(--dsw-alias-bg-module-platform)',
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 13,
-  fontFamily: 'inherit',
-}
-
-const selectStyle: CSSProperties = { ...inputStyle, flex: 'none', minWidth: 140 }
-
-const textareaStyle: CSSProperties = {
-  ...inputStyle,
-  minWidth: '100%',
-  minHeight: 72,
-  resize: 'vertical',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-  fontSize: 12,
-}
-
-const msgStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: '20px',
-}
-
-const hintStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: 12,
-  lineHeight: '18px',
-  margin: '0 0 4px',
-}
-
-function switchStyle(on: boolean): CSSProperties {
-  return {
-    appearance: 'none',
-    width: 40,
-    height: 22,
-    borderRadius: 11,
-    border: on ? '0' : '1px solid var(--dsw-alias-border-l2)',
-    cursor: 'pointer',
-    flex: 'none',
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0 3px',
-    background: on ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-bg-module-platform)',
-    transition: 'background .16s, border-color .16s',
-  }
-}
-
-function thumbStyle(on: boolean): CSSProperties {
-  return {
-    width: 16,
-    height: 16,
-    borderRadius: '50%',
-    background: '#ffffff',
-    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.2)',
-    flex: 'none',
-    transform: on ? 'translateX(18px)' : 'translateX(0)',
-    transition: 'transform .16s',
-  }
-}
+/** 下拉框：按内容宽度（dx-select 自带 width:100%，这里还原为 auto）。*/
+const fieldSelectStyle: CSSProperties = { flex: 'none', width: 'auto', minWidth: 140 }
 
 /** 卡片 props：RPC 通道 + 文案。*/
 export interface McpManagerCardProps {
@@ -435,29 +290,30 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
     }
   }
 
-  const serverRow = (server: ManagedMcpServer): JSX.Element => {
+  const serverRow = (server: ManagedMcpServer, index: number): JSX.Element => {
     const isLive = view?.live.includes(server.name) === true
     const summary = server.transport === 'stdio'
       ? server.command || t('none')
       : server.url || t('none')
     return (
-      <div key={server.name} style={rowStyle}>
-        <div style={rowTextStyle}>
-          <div style={rowTitleStyle}>{server.name}</div>
-          <div style={rowDescStyle}>{summary}</div>
+      <div key={server.name} className="dx-row dx-rise" data-hover="true" style={ui.stagger(index)}>
+        <div style={{ ...ui.stack(2), ...ui.grow }}>
+          <div className="dx-row__title">{server.name}</div>
+          <div className="dx-row__desc" style={ui.ellipsis}>{summary}</div>
         </div>
-        <span style={badgeStyle}>{server.transport === 'stdio' ? t('transportStdio') : t('transportHttp')}</span>
-        {server.enabled ? <span style={liveBadgeStyle}>{isLive ? t('live') : t('none')}</span> : <span style={badgeStyle}>{t('off')}</span>}
+        <span className="dx-badge">{server.transport === 'stdio' ? t('transportStdio') : t('transportHttp')}</span>
+        {server.enabled ? <span className="dx-badge dx-badge--ok">{isLive ? t('live') : t('none')}</span> : <span className="dx-badge">{t('off')}</span>}
         <button
           type="button"
           role="switch"
           aria-checked={server.enabled}
           aria-label={server.name}
           disabled={busy || disabled}
-          style={switchStyle(server.enabled)}
+          className="dx-switch dx-focus dx-tap"
+          style={ui.switchTrack(server.enabled)}
           onClick={() => void toggle(server.name, !server.enabled)}
         >
-          <span style={thumbStyle(server.enabled)} />
+          <span className="dx-switch__thumb" style={ui.switchThumb(server.enabled)} />
         </button>
       </div>
     )
@@ -468,21 +324,21 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
    *
    * 卸载走两步确认，因为它是破坏性操作——会真的删掉主人手写的条目定义。
    */
-  const installedRow = (server: InstalledMcpServer): JSX.Element => {
+  const installedRow = (server: InstalledMcpServer, index: number): JSX.Element => {
     const connected = server.tools.length > 0
     const editable = server.editable === true
     const confirmingThis = confirming === server.name
     return (
-      <div key={server.name} style={rowStyle}>
-        <div style={rowTextStyle}>
-          <div style={rowTitleStyle}>{server.name}</div>
-          <div style={rowDescStyle}>{server.summary || server.entryId || t('none')}</div>
+      <div key={server.name} className="dx-row dx-rise" data-hover={editable} style={ui.stagger(index)}>
+        <div style={{ ...ui.stack(2), ...ui.grow }}>
+          <div className="dx-row__title">{server.name}</div>
+          <div className="dx-row__desc" style={ui.ellipsis}>{server.summary || server.entryId || t('none')}</div>
         </div>
-        {server.transport !== '' ? <span style={badgeStyle}>{server.transport}</span> : null}
-        <span style={connected ? liveBadgeStyle : badgeStyle}>
+        {server.transport !== '' ? <span className="dx-badge">{server.transport}</span> : null}
+        <span className={cx('dx-badge', connected && 'dx-badge--ok')}>
           {connected ? t('toolCount', { count: server.tools.length }) : t('notConnected')}
         </span>
-        <span style={badgeStyle}>{editable ? t('composed') : t('external')}</span>
+        <span className="dx-badge">{editable ? t('composed') : t('external')}</span>
         {editable ? (
           <>
             <button
@@ -491,22 +347,27 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
               aria-checked={server.enabled}
               aria-label={`${server.name} ${server.enabled ? t('patchToggleOff') : t('patchToggleOn')}`}
               disabled={busy || disabled}
-              style={switchStyle(server.enabled)}
+              className="dx-switch dx-focus dx-tap"
+              style={ui.switchTrack(server.enabled)}
               onClick={() => void patchToggle(server, !server.enabled)}
             >
-              <span style={thumbStyle(server.enabled)} />
+              <span className="dx-switch__thumb" style={ui.switchThumb(server.enabled)} />
             </button>
             {confirmingThis ? (
               <>
                 <button
                   type="button"
                   disabled={busy || disabled}
-                  style={{ ...linkBtnStyle, color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 }}
+                  className="dx-btn dx-btn--sm dx-btn--danger dx-focus dx-press dx-tap"
                   onClick={() => void uninstall(server)}
                 >
                   {t('uninstallConfirm')}
                 </button>
-                <button type="button" style={{ ...linkBtnStyle, fontSize: 12 }} onClick={() => setConfirming('')}>
+                <button
+                  type="button"
+                  className="dx-btn dx-btn--sm dx-btn--link dx-focus dx-press dx-tap"
+                  onClick={() => setConfirming('')}
+                >
                   {t('cancel')}
                 </button>
               </>
@@ -514,7 +375,7 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
               <button
                 type="button"
                 disabled={busy || disabled}
-                style={{ ...linkBtnStyle, color: 'var(--dsw-alias-state-error-primary)', fontSize: 12 }}
+                className="dx-btn dx-btn--sm dx-btn--danger dx-focus dx-press dx-tap"
                 onClick={() => setConfirming(server.name)}
               >
                 {t('uninstall')}
@@ -527,10 +388,10 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
   }
 
   if (phase === 'loading') {
-    return <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('loading')}</div>
+    return <div className="dx-hint">{t('loading')}</div>
   }
   if (phase === 'error') {
-    return <div style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 13 }}>{t('loadFailed') + error}</div>
+    return <div className="dx-msg dx-msg--error">{t('loadFailed') + error}</div>
   }
 
   /** 归一化后的两份清单（load 已保证存在，这里再兜一层类型）。 */
@@ -539,98 +400,100 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
 
   return (
     <ModuleCard title={t('nav')} description={t('cardDescription')} disabled={disabled} bare={bare}>
-      <div style={actionRowStyle}>
-        <button type="button" style={linkBtnStyle} onClick={() => { setShowAdd(!showAdd); setShowImport(false) }}>
-          {showAdd ? '✓ ' : '+ '}{t('addTab')}
-        </button>
-        <button type="button" style={linkBtnStyle} onClick={() => { setShowImport(!showImport); setShowAdd(false) }}>
-          {showImport ? '✓ ' : '⇩ '}{t('importTab')}
-        </button>
+      <div style={ui.stack(10)}>
+        <div style={ui.hstack(10)}>
+          <button type="button" className="dx-btn dx-btn--link dx-focus dx-press dx-tap" onClick={() => { setShowAdd(!showAdd); setShowImport(false) }}>
+            {showAdd ? '✓ ' : '+ '}{t('addTab')}
+          </button>
+          <button type="button" className="dx-btn dx-btn--link dx-focus dx-press dx-tap" onClick={() => { setShowImport(!showImport); setShowAdd(false) }}>
+            {showImport ? '✓ ' : '⇩ '}{t('importTab')}
+          </button>
+        </div>
+
+        {showAdd ? (
+          <div className="dx-fade" style={ui.stack(8)}>
+            <div style={fieldRowStyle}>
+              <span className="dx-label" style={fieldLabelStyle}>{t('addName')}</span>
+              <input className="dx-input dx-focus" value={addName} placeholder="e.g. my-server" aria-label={t('addName')} style={fieldInputStyle} onChange={(e) => setAddName(e.target.value)} />
+              <span className="dx-label" style={fieldLabelStyle}>{t('addTransport')}</span>
+              <select className="dx-select dx-focus" value={transport} aria-label={t('addTransport')} style={fieldSelectStyle} onChange={(e) => setTransport(e.target.value === 'streamable-http' ? 'streamable-http' : 'stdio')}>
+                <option value="stdio">{t('transportStdio')}</option>
+                <option value="streamable-http">{t('transportHttp')}</option>
+              </select>
+            </div>
+            {transport === 'stdio' ? (
+              <>
+                <div style={fieldRowStyle}>
+                  <span className="dx-label" style={fieldLabelStyle}>{t('addCommand')}</span>
+                  <input className="dx-input dx-focus" value={addCommand} placeholder="npx -y @some/mcp-server" aria-label={t('addCommand')} style={fieldInputStyle} onChange={(e) => setAddCommand(e.target.value)} />
+                </div>
+                <div style={fieldRowStyle}>
+                  <span className="dx-label" style={fieldLabelStyle}>{t('addArgs')}</span>
+                  <input className="dx-input dx-focus" value={addArgs} placeholder='["--flag", "value"]' aria-label={t('addArgs')} style={fieldInputStyle} onChange={(e) => setAddArgs(e.target.value)} />
+                </div>
+                <div style={fieldRowStyle}>
+                  <span className="dx-label" style={fieldLabelStyle}>{t('addEnv')}</span>
+                  <input className="dx-input dx-focus" value={addEnv} placeholder='{"KEY": "value"}' aria-label={t('addEnv')} style={fieldInputStyle} onChange={(e) => setAddEnv(e.target.value)} />
+                </div>
+                <div style={fieldRowStyle}>
+                  <span className="dx-label" style={fieldLabelStyle}>{t('addCwd')}</span>
+                  <input className="dx-input dx-focus" value={addCwd} placeholder="(optional)" aria-label={t('addCwd')} style={fieldInputStyle} onChange={(e) => setAddCwd(e.target.value)} />
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={fieldRowStyle}>
+                  <span className="dx-label" style={fieldLabelStyle}>{t('addUrl')}</span>
+                  <input className="dx-input dx-focus" value={addUrl} placeholder="https://example.com/mcp" aria-label={t('addUrl')} style={fieldInputStyle} onChange={(e) => setAddUrl(e.target.value)} />
+                </div>
+                <div style={fieldRowStyle}>
+                  <span className="dx-label" style={fieldLabelStyle}>{t('addHeaders')}</span>
+                  <input className="dx-input dx-focus" value={addHeaders} placeholder='{"Authorization": "Bearer ..."}' aria-label={t('addHeaders')} style={fieldInputStyle} onChange={(e) => setAddHeaders(e.target.value)} />
+                </div>
+              </>
+            )}
+            <div>
+              <button type="button" disabled={busy || disabled} className="dx-btn dx-btn--primary dx-focus dx-press dx-tap" onClick={() => void addServer()}>
+                {busy ? t('adding') : t('addBtn')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {showImport ? (
+          <div className="dx-fade" style={ui.stack(8)}>
+            <p className="dx-hint" style={{ margin: 0 }}>{t('importHint')}</p>
+            <textarea
+              className="dx-textarea dx-mono dx-focus"
+              value={importJson}
+              placeholder={t('importJsonPlaceholder')}
+              aria-label="import json"
+              onChange={(e) => setImportJson(e.target.value)}
+            />
+            <div>
+              <button type="button" disabled={busy || disabled} className="dx-btn dx-btn--primary dx-focus dx-press dx-tap" onClick={() => void importServers()}>
+                {busy ? t('importing') : t('importBtn')}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {msg !== null ? (
+          <div className={cx('dx-msg', msg.kind === 'ok' ? 'dx-msg--ok' : 'dx-msg--error')}>{msg.text}</div>
+        ) : null}
+
+        <div className="dx-label" style={{ margin: 0 }}>{t('installedHeader')} ({installed.length})</div>
+        <p className="dx-hint" style={{ margin: 0 }}>{t('installedHint')}</p>
+        {installed.some((s) => s.editable === true) ? <p className="dx-hint" style={{ margin: 0 }}>{t('uninstallHint')}</p> : null}
+        {installed.length === 0
+          ? <div className="dx-empty">{t('none')}</div>
+          : installed.map((s, i) => installedRow(s, i))}
+
+        <div className="dx-label" style={{ margin: 0 }}>{t('managedHeader')} ({managed.length})</div>
+        <p className="dx-hint" style={{ margin: 0 }}>{t('managedHint')}</p>
+        {managed.length === 0 ? <div className="dx-empty">{t('none')}</div> : null}
+        {managed.map((s, i) => serverRow(s, i))}
       </div>
-
-      {showAdd ? (
-        <div style={formStyle}>
-          <div style={fieldRowStyle}>
-            <span style={labelStyle}>{t('addName')}</span>
-            <input value={addName} placeholder="e.g. my-server" aria-label={t('addName')} style={inputStyle} onChange={(e) => setAddName(e.target.value)} />
-            <span style={labelStyle}>{t('addTransport')}</span>
-            <select value={transport} aria-label={t('addTransport')} style={selectStyle} onChange={(e) => setTransport(e.target.value === 'streamable-http' ? 'streamable-http' : 'stdio')}>
-              <option value="stdio">{t('transportStdio')}</option>
-              <option value="streamable-http">{t('transportHttp')}</option>
-            </select>
-          </div>
-          {transport === 'stdio' ? (
-            <>
-              <div style={fieldRowStyle}>
-                <span style={labelStyle}>{t('addCommand')}</span>
-                <input value={addCommand} placeholder="npx -y @some/mcp-server" aria-label={t('addCommand')} style={inputStyle} onChange={(e) => setAddCommand(e.target.value)} />
-              </div>
-              <div style={fieldRowStyle}>
-                <span style={labelStyle}>{t('addArgs')}</span>
-                <input value={addArgs} placeholder='["--flag", "value"]' aria-label={t('addArgs')} style={inputStyle} onChange={(e) => setAddArgs(e.target.value)} />
-              </div>
-              <div style={fieldRowStyle}>
-                <span style={labelStyle}>{t('addEnv')}</span>
-                <input value={addEnv} placeholder='{"KEY": "value"}' aria-label={t('addEnv')} style={inputStyle} onChange={(e) => setAddEnv(e.target.value)} />
-              </div>
-              <div style={fieldRowStyle}>
-                <span style={labelStyle}>{t('addCwd')}</span>
-                <input value={addCwd} placeholder="(optional)" aria-label={t('addCwd')} style={inputStyle} onChange={(e) => setAddCwd(e.target.value)} />
-              </div>
-            </>
-          ) : (
-            <>
-              <div style={fieldRowStyle}>
-                <span style={labelStyle}>{t('addUrl')}</span>
-                <input value={addUrl} placeholder="https://example.com/mcp" aria-label={t('addUrl')} style={inputStyle} onChange={(e) => setAddUrl(e.target.value)} />
-              </div>
-              <div style={fieldRowStyle}>
-                <span style={labelStyle}>{t('addHeaders')}</span>
-                <input value={addHeaders} placeholder='{"Authorization": "Bearer ..."}' aria-label={t('addHeaders')} style={inputStyle} onChange={(e) => setAddHeaders(e.target.value)} />
-              </div>
-            </>
-          )}
-          <div>
-            <button type="button" disabled={busy || disabled} style={{ ...linkBtnStyle, color: 'var(--dsw-alias-brand-primary)' }} onClick={() => void addServer()}>
-              {busy ? t('adding') : t('addBtn')}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {showImport ? (
-        <div style={formStyle}>
-          <p style={hintStyle}>{t('importHint')}</p>
-          <textarea
-            value={importJson}
-            placeholder={t('importJsonPlaceholder')}
-            aria-label="import json"
-            style={textareaStyle}
-            onChange={(e) => setImportJson(e.target.value)}
-          />
-          <div>
-            <button type="button" disabled={busy || disabled} style={{ ...linkBtnStyle, color: 'var(--dsw-alias-brand-primary)' }} onClick={() => void importServers()}>
-              {busy ? t('importing') : t('importBtn')}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {msg !== null ? (
-        <div style={{ ...msgStyle, color: msg.kind === 'ok' ? '#12965b' : 'var(--dsw-alias-state-error-primary)' }}>{msg.text}</div>
-      ) : null}
-
-      <div style={headerStyle}>{t('installedHeader')} ({installed.length})</div>
-      <p style={hintStyle}>{t('installedHint')}</p>
-      {installed.some((s) => s.editable === true) ? <p style={hintStyle}>{t('uninstallHint')}</p> : null}
-      {installed.length === 0
-        ? <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('none')}</div>
-        : installed.map(installedRow)}
-
-      <div style={headerStyle}>{t('managedHeader')} ({managed.length})</div>
-      <p style={hintStyle}>{t('managedHint')}</p>
-      {managed.length === 0 ? <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('none')}</div> : null}
-      {managed.map(serverRow)}
     </ModuleCard>
   )
 }

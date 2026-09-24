@@ -16,6 +16,7 @@ import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { applyDailyOptimization } from '../features/daily-optimization/client/index.js'
 import { applyMyRulesClient } from '../features/my-rules/client/index.js'
 import { isModuleEnabled } from '../features/module-toggles/client/index.js'
+import { ensureDesignStyles } from './design/index.js'
 
 /**
  * 本 client 插件需要的浏览器侧服务。
@@ -42,6 +43,10 @@ export const name = 'dsh-experience-plugin-client'
  * @param ctx - 浏览器侧 client 上下文。
  */
 export function apply(ctx: ClientContext): void {
+  // 设计系统样式表（.dx-*）先注入：所有配置 UI 的静态外观都来自它（悬停/按压/焦点/动效）。
+  // 幂等：重复装配只会注入一次；组件侧 import 设计系统时也会兜底注入。
+  ensureDesignStyles()
+
   // 文案字典必须**无条件注册**，与模块开关解耦：
   // 「日用优化」分区里的配置卡片无论模块开没开都会渲染（关掉只是置灰），
   // 而 locale 查不到词条时会原样返回 key（dsh-client-locale translate 的 `?? key`），

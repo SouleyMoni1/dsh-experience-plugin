@@ -8,9 +8,13 @@
  * 行为：
  *  - 空内容保存 = 删除指令文件（先确认）；
  *  - 超过 64 KB 预算照常保存，但显示警告（指令渲染器可能截断）。
+ *
+ * 视觉：静态外观全部来自 .dx-* 类（文本域 dx-textarea dx-mono、说明 dx-hint、
+ * 消息 dx-msg、计量条 dx-meter），内联 style 只保留布局与计量条填充宽度。
  */
 import { useEffect, useState, type CSSProperties, type JSX } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
+import { cx, ui, C } from '../../../client/design/index.js'
 import type { ExperienceRpc } from '../../../client/rpc-transport.js'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MyRulesLocaleKey } from './locales.js'
@@ -47,67 +51,14 @@ interface Msg {
   text: string
 }
 
-const wrapStyle: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 10,
-}
+/** 文本域：外观在 .dx-textarea，这里只保留编辑器高度。 */
+const textareaInline: CSSProperties = { height: 190 }
 
-const textareaStyle: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  height: 190,
-  minHeight: 80,
-  padding: '10px 12px',
-  border: '1px solid var(--dsw-alias-border-l2)',
-  borderRadius: 8,
-  background: 'var(--dsw-alias-bg-module-platform)',
-  color: 'var(--dsw-alias-label-primary)',
-  fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
-  fontSize: 13,
-  lineHeight: '20px',
-  resize: 'vertical',
-  outline: 'none',
-}
+/** 计量条：外观在 .dx-meter，这里只保留在整行中的占位。 */
+const meterInline: CSSProperties = { flex: 1, minWidth: 60 }
 
-const noteStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: 12,
-  lineHeight: '18px',
-}
-
-const msgStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: '20px',
-}
-
-const okColor = '#12965b'
-const warnColor = '#d48806'
-const errColor = 'var(--dsw-alias-state-error-primary)'
-
-const meterTrackStyle: CSSProperties = {
-  flex: 1,
-  height: 6,
-  borderRadius: 3,
-  border: '1px solid var(--dsw-alias-label-tertiary)',
-  overflow: 'hidden',
-  minWidth: 60,
-}
-
-const meterFillStyle = (pct: number): CSSProperties => ({
-  height: '100%',
-  background: 'var(--dsw-alias-label-primary)',
-  borderRadius: 3,
-  width: `${pct}%`,
-})
-
-const meterTextStyle: CSSProperties = {
-  fontSize: 12,
-  color: 'var(--dsw-alias-label-tertiary)',
-  whiteSpace: 'nowrap',
-}
+/** 计量文本：字号/颜色在 .dx-hint，这里只禁止折行。 */
+const meterTextInline: CSSProperties = { whiteSpace: 'nowrap' }
 
 const docUrl = 'https://github.com/deepseek-ai/dsh-agent-instructions'
 
@@ -192,42 +143,46 @@ export function MyRulesEditor(props: MyRulesEditorProps): JSX.Element {
   }
 
   if (phase === 'loading') {
-    return <div style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13 }}>{t('loading')}</div>
+    return <div className="dx-empty">{t('loading')}</div>
   }
   if (phase === 'error') {
-    return <div style={{ color: 'var(--dsw-alias-state-error-primary)', fontSize: 13 }}>{t('loadFailed') + error}</div>
+    return <div className="dx-msg dx-msg--error">{t('loadFailed') + error}</div>
   }
 
   return (
-    <div style={wrapStyle}>
+    <div style={ui.stack(10)}>
       <textarea
+        className="dx-textarea dx-mono dx-focus"
+        style={textareaInline}
         value={content}
         placeholder={t('placeholder')}
         spellCheck={false}
         disabled={busy}
-        style={textareaStyle}
         onChange={(event) => setContent(event.target.value)}
       />
       {meta !== null && (
-        <div style={noteStyle}>{t('editorNote', { path: meta.displayPath })}</div>
+        <div className="dx-hint">{t('editorNote', { path: meta.displayPath })}</div>
       )}
       {msg !== null && (
-        <div style={{ ...msgStyle, color: msg.kind === 'ok' ? okColor : msg.kind === 'warn' ? warnColor : errColor }}>
+        <div
+          className={cx('dx-msg', msg.kind === 'ok' && 'dx-msg--ok', msg.kind === 'err' && 'dx-msg--error')}
+          style={msg.kind === 'warn' ? { color: C.warn } : undefined}
+        >
           {msg.text}
         </div>
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-          <div style={meterTrackStyle}>
-            <div style={meterFillStyle(fillPct)} />
+      <div style={{ ...ui.hstack(12), flexWrap: 'wrap' }}>
+        <div style={{ ...ui.hstack(10), flex: 1, minWidth: 0 }}>
+          <div className="dx-meter" style={meterInline}>
+            <div className="dx-meter__fill" style={ui.meterFill(fillPct)} />
           </div>
-          <span style={meterTextStyle}>{t('meter', { pct: String(pct), budget: String(budgetKb) })}</span>
+          <span className="dx-hint" style={meterTextInline}>{t('meter', { pct: String(pct), budget: String(budgetKb) })}</span>
         </div>
         <a
           href={docUrl}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: 13, lineHeight: '20px', textDecoration: 'none' }}
+          className="dx-btn dx-btn--link dx-press dx-focus"
         >
           {t('learnMore')} ↗
         </a>

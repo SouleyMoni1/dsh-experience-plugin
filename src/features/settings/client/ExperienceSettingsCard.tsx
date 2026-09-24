@@ -1,12 +1,13 @@
 /**
- * DSH 体验插件 —— 官方插件配置页卡片。
+ * DSH 体验插件 —— 「日用优化」分区里的可折叠配置卡片。
  *
- * 每个功能一个可收缩模块，沿用官方插件配置页的展开/收起交互；
- * 不使用下拉框切换，两个模块可以同时看到并分别展开。
+ * 视觉：白面 + 发丝描边 + 高度阴影（.dx-card），悬停轻微抬升；
+ * 头部右侧是圆形箭头芯片，展开时填充主题色并旋转 180°（弹簧缓动）。
+ * 静态外观全在 src/client/design/styles.ts 的 .dx-* 类里，这里只写状态。
  */
 import { useState, type ReactNode } from 'react'
-import type { CSSProperties } from 'react'
 import { IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
+import { cx, ui } from '../../../client/design/index.js'
 import { ReasoningEditor } from '../../model-reasoning/client/ReasoningEditor.js'
 import { CliMimicEditor } from '../../cli-mimic/client/CliMimicEditor.js'
 import { MyRulesEditor } from '../../my-rules/client/MyRulesEditor.js'
@@ -22,101 +23,30 @@ interface ModuleCardProps {
   children: ReactNode
 }
 
-const cardStyle: CSSProperties = {
-  border: '1px solid var(--dsw-alias-border-l2)',
-  background: 'var(--dsw-alias-bg-layer-3)',
-  borderRadius: '12px',
-  transition: 'border-color .16s, background .16s',
-}
-
-const cardOpenStyle: CSSProperties = {
-  background: 'var(--dsw-alias-bg-layer-2)',
-  borderColor: 'var(--dsw-alias-label-dimmed)',
-}
-
-const cardDisabledStyle: CSSProperties = {
-  opacity: 0.5,
-  cursor: 'not-allowed',
-}
-
-const headerStyle: CSSProperties = {
-  appearance: 'none',
-  width: '100%',
-  font: 'inherit',
-  color: 'inherit',
-  textAlign: 'left',
-  cursor: 'pointer',
-  background: 'transparent',
-  border: '0',
-  borderRadius: '12px',
-  alignItems: 'center',
-  gap: '12px',
-  padding: '14px 16px',
-  display: 'flex',
-}
-
-const headTextStyle: CSSProperties = {
-  flexDirection: 'column',
-  flex: 1,
-  gap: '4px',
-  minWidth: 0,
-  display: 'flex',
-}
-
-const titleStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 15,
-  fontWeight: 600,
-  lineHeight: 1.4,
-}
-
-const descriptionStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  fontSize: 13,
-  lineHeight: 1.5,
-}
-
-const chevronStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  flex: 'none',
-  display: 'inline-flex',
-  transition: 'transform .16s',
-}
-
-const bodyStyle: CSSProperties = {
-  borderTop: '1px solid var(--dsw-alias-border-l2)',
-  margin: '0 16px',
-  padding: '14px 0 8px',
-}
-
 export function ModuleCard({ title, description, defaultOpen = false, disabled = false, bare = false, children }: ModuleCardProps): any {
   const [open, setOpen] = useState(defaultOpen)
   if (bare) return <>{children}</>
 
-  const baseStyle = disabled
-    ? { ...cardStyle, ...cardDisabledStyle }
-    : open
-      ? { ...cardStyle, ...cardOpenStyle }
-      : cardStyle
+  const expanded = open && !disabled
 
   return (
-    <div style={baseStyle}>
+    <div className="dx-card" data-hover={!disabled} data-open={expanded} data-disabled={disabled}>
       <button
         type="button"
-        style={headerStyle}
-        aria-expanded={open}
+        className="dx-card__header dx-focus dx-tap"
+        aria-expanded={expanded}
         disabled={disabled}
         onClick={() => setOpen(!open)}
       >
-        <span style={headTextStyle}>
-          <span style={titleStyle}>{title}</span>
-          <span style={descriptionStyle}>{description}</span>
+        <span style={ui.grow}>
+          <span className="dx-card__title">{title}</span>
+          <span className="dx-card__desc">{description}</span>
         </span>
-        <span style={{ ...chevronStyle, transform: open ? 'rotate(180deg)' : 'none' }}>
+        <span className={cx('dx-card__chevron')} style={ui.chevron(expanded)} aria-hidden="true">
           <IconChevronDownOutlineMedium />
         </span>
       </button>
-      {open ? <div style={bodyStyle}>{children}</div> : null}
+      {expanded ? <div className="dx-card__body">{children}</div> : null}
     </div>
   )
 }

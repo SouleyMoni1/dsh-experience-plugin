@@ -1,12 +1,12 @@
 /**
  * 日用优化 —— 设置页「日用优化」分区。
  *
- * 布局参考官方「插件」分区（PluginsSettingsSection）：左侧导航一个分区，
- * 内容区顶部标题 + 说明 + 页签栏，页签下方渲染对应面板。
- * 本分区两个页签：
+ * 布局：内容列定宽左对齐（900px，苹果设置面板的阅读宽度），顶部标题 + 说明，
+ * 下面是苹果式分段控件（segmented control，滑块弹簧位移），再下面是面板内容：
  *   - 插件设置：集中承载本插件各功能的配置 UI（模型思考等级 / CLI 请求模拟 /
- *     设置页背景不透明），从官方插件配置页与通用设置区搬移过来；
- *   - 模块开关：全部功能模块的独立启停开关。
+ *     设置页背景不透明 / 自动加载历史 / 全局指令 / 模型参数）；
+ *   - 模块开关：全部功能模块的独立启停开关；
+ *   - MCP 管理 / Skills 管理：MCP 服务器与技能管理。
  *
  * 页签为组件内本地状态（与官方 Plugins 分区一致：active tab 是 viewing state），
  * 不注册子槽，避免与官方插件页的 tab 机制耦合。
@@ -14,11 +14,15 @@
  * 模块开关状态由本组件持有：切换后「插件设置」页签即时把对应配置卡片置灰
  * （关闭的模块其配置不再有意义），与 src/client/index.ts 的装配判断一致。
  * 注意：文案字典必须无条件注册（见 src/client/index.ts），否则置灰卡片会显示原始 key。
+ *
+ * 动效：卡片以 45ms 错峰浮入（dx-rise + ui.stagger），切换页签时面板淡入（dx-fade，
+ * key=active 强制重挂载以重放动画）；静态外观全部来自 .dx-* 类。
  */
 import { useEffect, useState, type CSSProperties, type JSX } from 'react'
 import type { PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ExperienceRpc } from '../../../client/rpc-transport.js'
 import type { SettingsAccess } from '../../../client/settings-access.js'
+import { ui } from '../../../client/design/index.js'
 import { ModelReasoningCard, CliMimicCard, MyRulesCard } from '../../settings/client/ExperienceSettingsCard.js'
 import { OpaqueBgRow } from '../../settings-page/client/OpaqueBgRow.js'
 import { AutoLoadHistoryCard } from '../../auto-load-history/client/AutoLoadHistoryCard.js'
@@ -55,76 +59,24 @@ export interface DailyOptimizationSectionInjected {
   skillT: TranslateNS<'skill-manager'>
 }
 
+/** 分区根容器：定宽内容列 + 纵向节奏。 */
 const sectionStyle: CSSProperties = {
-  width: '100%',
-  color: 'var(--dsw-alias-label-primary)',
+  ...ui.content,
+  display: 'flex',
   flexDirection: 'column',
-  gap: 12,
-  display: 'flex',
-}
-
-const headingStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 18,
-  fontWeight: 600,
-}
-
-const introStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  margin: 0,
-  fontSize: 13,
-}
-
-const tabsStyle: CSSProperties = {
-  borderBottom: '1px solid var(--dsw-alias-border-l2)',
-  alignItems: 'flex-end',
-  gap: 22,
-  marginTop: 2,
-  display: 'flex',
-}
-
-const tabStyle = (active: boolean): CSSProperties => ({
-  color: active ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-tertiary)',
-  font: 'inherit',
-  cursor: 'pointer',
-  background: '0 0',
-  border: 0,
-  padding: '7px 1px 9px',
-  fontSize: 13,
-  lineHeight: '20px',
-  position: 'relative',
-})
-
-const tabActiveBarStyle: CSSProperties = {
-  background: 'var(--dsw-alias-label-primary)',
-  content: '""',
-  borderRadius: '2px 2px 0 0',
-  height: 2,
-  position: 'absolute',
-  bottom: -1,
-  left: 0,
-  right: 0,
-}
-
-const panelStyle: CSSProperties = {
-  minWidth: 0,
-  paddingTop: 2,
-}
-
-const cardsStyle: CSSProperties = {
-  flexDirection: 'column',
-  gap: 10,
-  display: 'flex',
-}
-
-const emptyStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-tertiary)',
-  margin: 0,
-  fontSize: 13,
+  gap: 18,
 }
 
 /** 页签 id。 */
 type TabId = 'settings' | 'modules' | 'mcp' | 'skills'
+
+/**
+ * 分段控件的两个自定义属性（滑块索引 / 段数）。
+ * React 的 CSSProperties 不含自定义属性，这里显式透传。
+ */
+function segVars(index: number, count: number): CSSProperties {
+  return { '--dx-seg-index': String(index), '--dx-seg-count': String(count) } as unknown as CSSProperties
+}
 
 /**
  * 渲染「日用优化」分区。
@@ -200,65 +152,65 @@ export function DailyOptimizationSection(props: DailyOptimizationSectionProps): 
   ]
   const settingsCardIds = sortModuleIds(settingsCards.map((c) => c.id), moduleStates)
 
+  const tabs: { id: TabId; label: string }[] = [
+    { id: 'settings', label: t('settingsTab') },
+    { id: 'modules', label: t('modulesTab') },
+    { id: 'mcp', label: t('mcpTab') },
+    { id: 'skills', label: t('skillsTab') },
+  ]
+  const activeIndex = Math.max(0, tabs.findIndex((tab) => tab.id === active))
+
   return (
-    <div style={sectionStyle}>
-      <h2 style={headingStyle}>{t('title')}</h2>
-      <p style={introStyle}>{t('intro')}</p>
-      <div style={tabsStyle}>
-        <button
-          type="button"
-          data-active={active === 'settings'}
-          style={tabStyle(active === 'settings')}
-          onClick={() => setActive('settings')}
-        >
-          {t('settingsTab')}
-          {active === 'settings' ? <span style={tabActiveBarStyle} /> : null}
-        </button>
-        <button
-          type="button"
-          data-active={active === 'modules'}
-          style={tabStyle(active === 'modules')}
-          onClick={() => setActive('modules')}
-        >
-          {t('modulesTab')}
-          {active === 'modules' ? <span style={tabActiveBarStyle} /> : null}
-        </button>
-        <button
-          type="button"
-          data-active={active === 'mcp'}
-          style={tabStyle(active === 'mcp')}
-          onClick={() => setActive('mcp')}
-        >
-          {t('mcpTab')}
-          {active === 'mcp' ? <span style={tabActiveBarStyle} /> : null}
-        </button>
-        <button
-          type="button"
-          data-active={active === 'skills'}
-          style={tabStyle(active === 'skills')}
-          onClick={() => setActive('skills')}
-        >
-          {t('skillsTab')}
-          {active === 'skills' ? <span style={tabActiveBarStyle} /> : null}
-        </button>
+    <div className="dx-section" style={sectionStyle}>
+      <header style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <h2 className="dx-section__title">{t('title')}</h2>
+        <p className="dx-section__intro">{t('intro')}</p>
+      </header>
+
+      <div className="dx-seg" role="tablist" aria-label={t('title')} style={segVars(activeIndex, tabs.length)}>
+        <span className="dx-seg__thumb" aria-hidden="true" />
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            data-active={active === tab.id}
+            aria-selected={active === tab.id}
+            className="dx-seg__item dx-tap"
+            onClick={() => setActive(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
-      <div style={panelStyle}>
+
+      <div key={active} className="dx-fade">
         {active === 'settings' ? (
-          <div style={cardsStyle}>
-            {settingsCardIds.map((id) => {
+          <div style={ui.stack(12)}>
+            {settingsCardIds.map((id, i) => {
               const c = settingsCards.find((x) => x.id === id)!
-              return <div key={c.id}>{c.node}</div>
+              return (
+                <div key={c.id} className="dx-rise" style={ui.stagger(i)}>
+                  {c.node}
+                </div>
+              )
             })}
           </div>
         ) : active === 'modules' ? (
-          <div>
-            <p style={emptyStyle}>{t('modulesIntro')}</p>
-            <ModuleTogglesList states={moduleStates} onToggle={toggleModule} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <p className="dx-section__intro" style={{ marginBottom: 8 }}>{t('modulesIntro')}</p>
+            <div className="dx-card dx-rise" style={{ padding: '4px 18px', boxSizing: 'border-box' }}>
+              <ModuleTogglesList states={moduleStates} onToggle={toggleModule} />
+            </div>
           </div>
         ) : active === 'mcp' ? (
-          <McpManagerCard rpc={rpc} t={mcpT} bare />
+          <div className="dx-card dx-rise" style={{ padding: '14px 18px', boxSizing: 'border-box' }}>
+            <McpManagerCard rpc={rpc} t={mcpT} bare />
+          </div>
         ) : (
-          <SkillManagerCard rpc={rpc} t={skillT} bare />
+          <div className="dx-card dx-rise" style={{ padding: '14px 18px', boxSizing: 'border-box' }}>
+            <SkillManagerCard rpc={rpc} t={skillT} bare />
+          </div>
         )}
       </div>
     </div>

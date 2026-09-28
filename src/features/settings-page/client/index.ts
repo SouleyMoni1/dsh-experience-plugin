@@ -106,6 +106,17 @@ const OPEN_MS = 320
 /** 官方设置面板标题候选文案（zh / en），命中才判定为设置面板。 */
 const SETTINGS_TITLES = new Set(['设置', 'Settings'])
 
+/** 左下角返回按钮文案与图标（16px 线性箭头，与官方导航图标同规格）。 */
+const BACK_LABEL = '返回'
+const BACK_ICON_SVG = [
+  '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">',
+  '<path d="M13 8H3M7 4 3 8l4 4"/>',
+  '</svg>',
+].join('')
+
+/** 官方关闭按钮文案候选（zh / en），命中即用它关闭设置页。 */
+const CLOSE_LABELS = new Set(['关闭', 'Close'])
+
 /** 官方 SettingsPanel 的 DOM 部件定位结果。 */
 interface SettingsChrome {
   overlay: HTMLElement
@@ -155,6 +166,27 @@ function locateChrome(panel: HTMLElement): SettingsChrome {
   }
 }
 
+/** 关闭设置页：点官方关闭按钮（走官方状态更新），取不到再退化为 Esc。 */
+function closeSettingsPanel(panel: HTMLElement): void {
+  const close = Array.from(panel.querySelectorAll('button')).find((b) => CLOSE_LABELS.has((b.textContent ?? '').trim()))
+  if (close !== undefined) {
+    close.click()
+    return
+  }
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+}
+
+/** 导航列底部挂「返回」按钮（幂等）：宽度跟随导航列内容盒，即上方菜单的宽度。 */
+function ensureBackButton(panel: HTMLElement, nav: HTMLElement): void {
+  if (nav.querySelector('.dx-nav-back') !== null) return
+  const back = document.createElement('button')
+  back.type = 'button'
+  back.className = 'dx-nav-back dx-focus'
+  back.innerHTML = `${BACK_ICON_SVG}<span>${BACK_LABEL}</span>`
+  back.addEventListener('click', () => closeSettingsPanel(panel))
+  nav.append(back)
+}
+
 /** 把弹窗覆盖成「全屏页面」形态（幂等，可重复执行）。 */
 function applyFullscreen(chrome: SettingsChrome): void {
   const { overlay, panel, nav, content, options } = chrome
@@ -181,6 +213,7 @@ function applyFullscreen(chrome: SettingsChrome): void {
     nav.style.flex = 'none'
     nav.style.borderRight = '1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1))'
     nav.classList.add('dx-scroll', 'dx-settings-nav')
+    ensureBackButton(panel, nav)
   }
 
   // 内容区撑满剩余宽度并加大留白
@@ -249,13 +282,27 @@ export function applySettingsPage(ctx: ClientContext): void {
     // 首次挂载时面板可能已在 DOM（插件热更新），先同步执行一次
     refresh()
 
-    // 之后监听设置面板挂载/重挂载（折叠侧栏、会话切换导致的重新渲染）
-    const observer = new MutationObserver(() => refresh())
-    observer.observe(document.documentElement, { childList: true, subtree: true })
+    // 之后监听：设置面板挂载/重挂载（折叠侧栏、会话切换导致的重新渲染）；
+    // 以及 html/body 的属性变化 —— 主题切换只改属性、不产生子节点变化，此时必须重算
+    // 「背景不透明」的内联底色，否则面板会留着上一套主题的底色（深色下白底浅字，页面读不了）。
+    const observer = new MutationObserver((records) => {
+      const themeToggled = records.some(
+        (r) => r.type === 'attributes' && (r.target === document.body || r.target === document.documentElement),
+      )
+      if (themeToggled) applyOpaqueBg()
+      if (records.some((r) => r.type === 'childList')) refresh()
+    })
+    observer.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'data-ds-dark-theme'],
+    })
 
     return () => {
       observer.disconnect()
       seenPanel = null
+      document.querySelectorAll('.dx-nav-back').forEach((el) => el.remove())
     }
   }, 'settings-page: fullscreen settings page')
 }

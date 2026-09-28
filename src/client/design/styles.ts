@@ -738,6 +738,39 @@ body[data-ds-dark-theme] {
   }
 }
 
+/* ================= 设置页导航「返回」 ================= */
+
+/* 左下角返回按钮：尺寸/圆角/内边距对齐官方导航单元格（40px 高 / 12px 圆角 /
+   9px 16px 9px 12px / 8px 间隙），margin-top:auto 把它钉在导航列底部；
+   宽度 100% 即菜单宽度（导航列内容盒），左箭头 + 「返回」文案。 */
+.dx-nav-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  width: 100%;
+  height: 40px;
+  margin-top: auto;
+  margin-bottom: 16px;
+  padding: 9px 16px 9px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dx-label-1);
+  font: inherit;
+  font-size: 14px;
+  line-height: 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dx-dur-fast) var(--dx-ease-out);
+}
+.dx-nav-back:hover {
+  background: var(--dx-hover-wash);
+}
+.dx-nav-back > svg {
+  flex: none;
+}
+
 /* ---- 桌面端（Electron）窗口标题栏避让 ----
    DSH 桌面端由 shell 在 html 上打 data-windows-titlebar 标记，并把顶栏高度写进
    --dsh-windows-titlebar-height（Windows 为 40px）；frame 用 padding-top 预留这段，

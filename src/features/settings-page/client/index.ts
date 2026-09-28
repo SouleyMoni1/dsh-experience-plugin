@@ -159,15 +159,18 @@ function locateChrome(panel: HTMLElement): SettingsChrome {
 function applyFullscreen(chrome: SettingsChrome): void {
   const { overlay, panel, nav, content, options } = chrome
 
-  // 面板：撑满视口，去圆角 / 阴影 / 居中约束
-  panel.style.width = '100vw'
-  panel.style.height = '100vh'
+  // 面板：撑满可用区域（100% 而非 100vw/100vh —— 桌面端 overlay 顶部有标题栏避让内边距），
+  // 去圆角 / 阴影 / 居中约束
+  panel.style.width = '100%'
+  panel.style.height = '100%'
   panel.style.maxWidth = 'none'
   panel.style.maxHeight = 'none'
   panel.style.borderRadius = '0'
   panel.style.boxShadow = 'none'
   overlay.style.alignItems = 'stretch'
   overlay.style.justifyContent = 'stretch'
+  // 桌面端顶栏避让与可拖拽由样式表里 [data-windows-titlebar] 规则接管（见 design/styles.ts）
+  overlay.classList.add('dx-settings-overlay')
 
   // 背景不透明开关（跟随用户偏好，覆盖皮肤/主题的透明）
   applyOpaqueBg()
@@ -177,7 +180,7 @@ function applyFullscreen(chrome: SettingsChrome): void {
     nav.style.width = `${NAV_WIDTH}px`
     nav.style.flex = 'none'
     nav.style.borderRight = '1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1))'
-    nav.classList.add('dx-scroll')
+    nav.classList.add('dx-scroll', 'dx-settings-nav')
   }
 
   // 内容区撑满剩余宽度并加大留白

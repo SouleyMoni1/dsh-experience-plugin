@@ -738,6 +738,29 @@ body[data-ds-dark-theme] {
   }
 }
 
+/* ---- 桌面端（Electron）窗口标题栏避让 ----
+   DSH 桌面端由 shell 在 html 上打 data-windows-titlebar 标记，并把顶栏高度写进
+   --dsh-windows-titlebar-height（Windows 为 40px）；frame 用 padding-top 预留这段，
+   官方全屏浮层也按同一条规则避让。官方设置弹窗本身是居中小窗、够不到这段，本插件把它
+   拉成全屏后必须自己补回来，否则页面顶栏会撞上原生最小化/最大化/关闭按钮（仅桌面端）。 */
+[data-windows-titlebar] .dx-settings-overlay {
+  padding-top: var(--dsh-windows-titlebar-height, 40px);
+}
+/* 顶栏这段自己铺底色并保持可拖拽（与 frame 的 :before 一致），
+   桌面端全屏设置页期间窗口仍能靠顶栏拖动。 */
+[data-windows-titlebar] .dx-settings-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: var(--dsh-windows-titlebar-height, 40px);
+  background: var(--dsw-specific-sidebar-fill, var(--dsw-alias-bg-base));
+  -webkit-app-region: drag;
+}
+/* macOS 桌面（hiddenInset 样式，红绿灯浮在内容左上角）：导航列顶部让出红绿灯高度。 */
+html[data-platform='darwin'] .dx-settings-nav {
+  padding-top: 32px;
+}
+
 /* 尊重系统的「减少动态效果」。 */
 @media (prefers-reduced-motion: reduce) {
   .dx-rise,

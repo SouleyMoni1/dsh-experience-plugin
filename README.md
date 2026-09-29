@@ -191,6 +191,22 @@ node scripts/deploy-to-profile.mjs --dry    # 只看差异
 > `baseUrl` 时才回退到从插件 URL 上溯三层（仅 `node_modules` 布局成立）。
 > 两处都定位不到时返回 `null`，RPC 会拒绝操作而不是乱写文件。
 
+## DSH 版本兼容
+
+DSH 的设置契约只有两条，插件靠 `typeof settings.register === 'function'` 自动分线
+（见 `src/features/settings-compat.ts`）：
+
+| DSH 线 | 契约 | 命名空间来源 | peer 范围 |
+| --- | --- | --- | --- |
+| `0.1.5-rc.x`（稳定线） | 有 `settings.register()` | 插件注册时指定 | `^0.1.5-rc.1` |
+| `0.1.7-alpha.x` 起（含 rc / `0.2.0-rc.x`） | 无 `register`；可写字段必须 `.volatile()` | loader 条目 id | `^0.1.7-alpha.1` / `^0.2.0-rc.1` |
+
+`0.2.0-rc.1` 的 `dsh-settings` 与 `0.1.7` 线逐字一致，故共用一条分支。
+
+semver 的预发布规则要求**每个 minor 显式补一段 alternation**：`^0.1.7-alpha.1` 不匹配
+`0.2.0-rc.1`，`^0.2.0-rc.1` 也不匹配 `0.2.1-rc.1`。DSH 发新 minor 时：先跑
+`verify-dsh-compat`，通过后把该 minor 追加进 `peerDependencies`。
+
 ## 验证脚本
 
 ```bash

@@ -9,3 +9,5 @@ lib/
 .e2e-web-home/
 .compat-stable/
 .verify-home/
+.compat-020/
+.compat-*/

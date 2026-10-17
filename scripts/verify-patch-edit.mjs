@@ -83,11 +83,24 @@ check('就地翻转只动值、不动其余字节', applyPatchToggle(userDisable
 const removedGithub = applyPatchRemoval(original, 'mcp-github')
 check('卸载报告 removed', removedGithub.removed, true)
 check('卸载后 github 定义消失', patchFileDefinesEntry(removedGithub.text, 'mcp-github'), false)
-check('卸载后 dbhub 仍在', patchFileDefinesEntry(removedGithub.text, 'mcp-dbhub'), true)
-check('卸载后 chrome-devtools 仍在', patchFileDefinesEntry(removedGithub.text, 'mcp-chrome-devtools'), true)
+
+// 断言不写死具体 serverName：基线是主人真实的 profile，DSH_PROFILE_DIR 指向
+// 哪个 profile 就可能有哪些条目，写死 dbhub 会在换 profile 后变成假失败。
+const mcpIds = (t) => [...t.matchAll(/^\s*- id: (mcp-[\w-]+)/gm)].map((m) => m[1])
+const survivors = mcpIds(original).filter((id) => id !== 'mcp-github')
+check(
+  `卸载后其余 mcp 条目原样保留（${survivors.length} 个：${survivors.join(', ') || '无'}）`,
+  survivors.every((id) => patchFileDefinesEntry(removedGithub.text, id)),
+  true,
+)
 ok('卸载只带走 github 的 !!js 表达式', !removedGithub.text.includes('GITHUB_PERSONAL_ACCESS_TOKEN'))
-ok('卸载保留了 dbhub 的中文注释', removedGithub.text.includes('本地固定路径（离线可用）'), '别人的注释不该被牵连')
-ok('卸载保留了「已卸载插件」注释', removedGithub.text.includes('已卸载插件（odai-dsh-plugin）'))
+
+// 「他人注释」同样按基线取样，样本不存在就跳过。
+const foreignComments = ['本地固定路径（离线可用）', '已卸载插件（odai-dsh-plugin）'].filter((c) => original.includes(c))
+if (foreignComments.length === 0) console.log('· 跳过「他人注释保留」断言：当前基线没有可验证样本')
+for (const c of foreignComments) {
+  ok(`卸载保留了他人注释「${c}」`, removedGithub.text.includes(c), '别人的注释不该被牵连')
+}
 
 // ── 7. 卸载 insert 列表里的最后一项（容器也要删）─────────────────────────────
 const minimal = [
@@ -119,14 +132,18 @@ check('卸载未知条目 removed=false', notFound.removed, false)
 check('卸载未知条目文本不变', notFound.text, original)
 
 // ── 10. 注释与 !!js 在所有操作后仍完好 ──────────────────────────────────────
+// 分节注释在不在取决于 DSH_PROFILE_DIR 指向哪个 profile，不在就跳过。
+const sectionComment = '── MCP servers (imported from codex'
+const hasSectionComment = original.includes(sectionComment)
 for (const [label, text] of [
   ['关闭后', closed],
   ['重开后', reopened],
   ['卸载 github 后', removedGithub.text],
 ]) {
   ok(`${label} 保留文件头注释`, text.includes('Your patch layer for this dsh profile'))
-  ok(`${label} 保留 MCP 分节注释`, text.includes('── MCP servers (imported from codex'))
+  if (hasSectionComment) ok(`${label} 保留 MCP 分节注释`, text.includes(sectionComment))
 }
+if (!hasSectionComment) console.log('· 跳过「MCP 分节注释保留」断言：当前基线没有该注释')
 ok('dbhub 的 !!js 无关，但 env 写法保留', removedGithub.text.includes('GITHUB_PERSONAL_ACCESS_TOKEN') === false)
 
 // ── 11. 行尾 / BOM 不被动过 ─────────────────────────────────────────────────

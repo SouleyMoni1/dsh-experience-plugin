@@ -1,6 +1,6 @@
 {
   "name": "dsh-experience-plugin",
-  "version": "0.7.9",
+  "version": "0.7.10",
   "description": "DSH plugin: model reasoning levels plus CLI request mimic, with a unified Daily Optimization settings section.",
   "type": "module",
   "main": "./lib/index.js",
@@ -35,11 +35,11 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",
-    "@deepseek-ai/dsh-credentials": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-mcp-client": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-settings": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1",
-    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1"
+    "@deepseek-ai/dsh-credentials": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-llm": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-mcp-client": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-settings": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1",
+    "@deepseek-ai/dsh-tools": "^0.1.5-rc.1 || ^0.1.7-alpha.1 || ^0.2.0-rc.1 || ^0.2.1-alpha.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.4",

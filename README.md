@@ -199,13 +199,34 @@ DSH 的设置契约只有两条，插件靠 `typeof settings.register === 'funct
 | DSH 线 | 契约 | 命名空间来源 | peer 范围 |
 | --- | --- | --- | --- |
 | `0.1.5-rc.x`（稳定线） | 有 `settings.register()` | 插件注册时指定 | `^0.1.5-rc.1` |
-| `0.1.7-alpha.x` 起（含 rc / `0.2.0-rc.x`） | 无 `register`；可写字段必须 `.volatile()` | loader 条目 id | `^0.1.7-alpha.1` / `^0.2.0-rc.1` |
+| `0.1.7-alpha.x` 起（含 rc / `0.2.0-rc.x` / `0.2.1-rc.x`） | 无 `register`；可写字段必须 `.volatile()` | loader 条目 id | `^0.1.7-alpha.1` / `^0.2.0-rc.1` / `^0.2.1-alpha.1` |
 
-`0.2.0-rc.1` 的 `dsh-settings` 与 `0.1.7` 线逐字一致，故共用一条分支。
+`0.2.0-rc.1`、`0.2.1-rc.2` 的 `dsh-settings` 与 `0.1.7` 线逐字一致（`volatile` 机制、
+「命名空间 = `configEditor.entries()` 里 `options.id === ns`」、三条报错文案全同），
+`cordis-plugin-loader` 1.0.6 的 `Entry.options` / `entries()` / `disabled` 形状也未变，
+故三条线共用同一分支。
 
 semver 的预发布规则要求**每个 minor 显式补一段 alternation**：`^0.1.7-alpha.1` 不匹配
-`0.2.0-rc.1`，`^0.2.0-rc.1` 也不匹配 `0.2.1-rc.1`。DSH 发新 minor 时：先跑
+`0.2.0-rc.1`，`^0.2.0-rc.1` 也不匹配 `0.2.1-rc.2`。DSH 发新 minor 时：先跑
 `verify-dsh-compat`，通过后把该 minor 追加进 `peerDependencies`。
+
+### MCP 条目住哪儿（排查用）
+
+MCP 服务器**不是**插件自带的，而是 profile 的 `cordis.patch.yml` 里一段顶层
+`- insert:` 列表，每条形如：
+
+```yaml
+- insert:
+    - id: mcp-fastctx
+      name: '@deepseek-ai/dsh-mcp-client'
+      config: { serverName: fastctx, transport: stdio, command: ..., args: [...] }
+```
+
+DSH 监听该文件并热重组，改完即生效、无需重启。**这段被清掉就等于所有 MCP 工具消失**，
+而插件「设置 → MCP 管理」读的正是同一批 loader 条目，会一并变空——所以「MCP 管理里
+什么都没有」先怀疑这段 `insert:` 是否还在，而不是先怀疑识别逻辑。profile 目录里的
+`cordis.patch.yml.bak-*` 就是各写入方留下的备份，可据其比对找回。
+
 
 ## 验证脚本
 

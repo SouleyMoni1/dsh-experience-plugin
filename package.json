@@ -1,7 +1,7 @@
 {
   "name": "dsh-experience-plugin",
-  "version": "0.7.10",
-  "description": "DSH plugin: model reasoning levels plus CLI request mimic, with a unified Daily Optimization settings section.",
+  "version": "0.7.11",
+  "description": "DSH plugin: CLI request mimic, MCP server manager, Skills manager and global rules, with a unified Daily Optimization settings section.",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/types/index.d.ts",
@@ -27,7 +27,7 @@
     "build:js": "tsdown",
     "dev": "tsdown --watch",
     "deploy": "node scripts/deploy-to-profile.mjs",
-    "verify": "node scripts/verify-dsh-compat.mjs && node scripts/verify-mcp-installed.mjs && node scripts/verify-real-profile.mjs"
+    "verify": "node scripts/verify-dsh-compat.mjs && node scripts/verify-mcp-installed.mjs && node scripts/verify-client-activate.mjs && node scripts/verify-real-profile.mjs"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "^3.18.4",
@@ -54,7 +54,6 @@
     "@deepseek-ai/dsh-client-ui-slots": "^0.1.7-alpha.2",
     "@deepseek-ai/dsh-credentials": "^0.1.7-alpha.2",
     "@deepseek-ai/dsh-llm": "^0.1.7-alpha.2",
-    "@deepseek-ai/dsh-llm-pi-ai": "^0.1.7-alpha.2",
     "@deepseek-ai/dsh-mcp-client": "^0.1.7-alpha.2",
     "@deepseek-ai/dsh-settings": "^0.1.7-alpha.2",
     "@deepseek-ai/dsh-tools": "^0.1.7-alpha.2",
@@ -79,9 +78,9 @@
     "dsh",
     "deepseek-harness",
     "plugin",
-    "model-reasoning",
-    "reasoning-effort",
     "cli-mimic",
+    "mcp",
+    "skills",
     "settings",
     "my-rules",
     "global-rules",

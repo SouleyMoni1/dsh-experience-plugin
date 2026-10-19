@@ -84,13 +84,12 @@ export interface SettingsAccess {
  * 历史命名空间 → 本条目子段的映射。
  *
  * `dsh-experience-plugin` 是历史同名命名空间（现在就是本条目本身），段在根
- * （空串）。其余三个是本插件早期自建的独立命名空间，现已并入同名子段。
+ * （空串）。其余两个是本插件早期自建的独立命名空间，现已并入同名子段。
  */
 export const NAMESPACE_SECTIONS: Record<string, string> = {
   [EXPERIENCE_NS]: '',
   'cli-mimic': 'cliMimic',
   'dsh-experience-mcp-manager': 'mcpManager',
-  'dsh-experience-model-params': 'modelParams',
 }
 
 /** 远程 settings 面的最小形状（两线同形）。 */

@@ -5,8 +5,8 @@
  * 作为持久指令块——所以编辑它等于给所有聊天设定「我的规则」。空内容保存 =
  * 删除文件（清除全局指令）；超过 64 KiB 指令预算时照常写入但标记警告。
  *
- * 通信：走官方通用 RPC 通道（connection.rpc），channel 独立于 model-reasoning
- * 的 /dsh-experience-plugin，避免路径冲突。浏览器侧经 rpc.call 读写。
+ * 通信：走官方通用 RPC 通道（connection.rpc），channel 独立于本插件的
+ * /dsh-experience-plugin 主路由，避免路径冲突。浏览器侧经 rpc.call 读写。
  */
 import fs from 'node:fs'
 import path from 'node:path'

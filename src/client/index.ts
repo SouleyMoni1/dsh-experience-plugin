@@ -2,16 +2,14 @@
  * dsh-experience-plugin —— browser 半区入口。
  * 浏览器侧功能装配：每个 client 功能一个模块，在此按需挂载。
  *
- * 设置统一收拢：所有配置 UI（模型思考等级 / CLI 请求模拟 / 设置页背景不透明 /
- * 模块开关）都搬进设置页「日用优化」分区（features/daily-optimization），
+ * 设置统一收拢：所有配置 UI（CLI 请求模拟 / 设置页背景不透明 / 模块开关 /
+ * MCP 管理 / Skills 管理）都搬进设置页「日用优化」分区（features/daily-optimization），
  * 不再散落在官方插件配置页与通用设置区。
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // 让官方包的 declare module 合并进 SlotMap：settings.section 槽位契约。
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { applyModelReasoningClient } from '../features/model-reasoning/client/index.js'
 import { applyOpenFolder } from '../features/open-folder/client/index.js'
-import { applyAutoLoadHistory } from '../features/auto-load-history/client/index.js'
 import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { applyDailyOptimization } from '../features/daily-optimization/client/index.js'
 import { applyMyRulesClient } from '../features/my-rules/client/index.js'
@@ -51,13 +49,10 @@ export function apply(ctx: ClientContext): void {
   // 「日用优化」分区里的配置卡片无论模块开没开都会渲染（关掉只是置灰），
   // 而 locale 查不到词条时会原样返回 key（dsh-client-locale translate 的 `?? key`），
   // 一旦字典没注册，卡片标题就会显示成字面的 "nav"。
-  applyModelReasoningClient(ctx)
   applyMyRulesClient(ctx)
 
   // 各功能模块按「模块开关」独立启停（默认全部开启，与旧行为一致）。
   if (isModuleEnabled('open-folder')) applyOpenFolder(ctx, ctx.workspaces)
-  // 自动加载更早的对话历史：独立模块，条数可在设置页「日用优化」分区配置。
-  if (isModuleEnabled('auto-load-history')) applyAutoLoadHistory(ctx)
   // 官方设置弹窗 → 全屏设置页：几何覆盖，不改官方槽架构。
   if (isModuleEnabled('settings-page')) applySettingsPage(ctx)
 

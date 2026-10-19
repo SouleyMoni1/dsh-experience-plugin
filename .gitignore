@@ -11,3 +11,4 @@ lib/
 .verify-home/
 .compat-020/
 .compat-*/
+.compat/

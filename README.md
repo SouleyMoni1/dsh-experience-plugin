@@ -4,12 +4,9 @@ DSH（DeepSeek Harness）功能插件，按功能模块组织：
 
 | 模块 | 功能 | 配置入口 |
 |------|------|----------|
-| 模型思考等级 | 为自定义 API 模型注入推理等级与输入能力（文字 / 视觉） | 设置页「日用优化」分区 |
-| 模型参数 | 按 Provider / 模型手动覆盖 temperature / maxTokens / reasoningEffort | 设置页「日用优化」分区 |
 | CLI 请求模拟 | 把 DSH 模型请求伪装成 Codex / Claude Code / Grok CLI | 设置页「日用优化」分区 |
 | 打开文件夹 | 工作区行菜单打开项目目录 | 插件行 `openFolder` 段 |
 | 设置页全屏化 | 设置弹窗改全屏页 + 背景不透明开关 | 设置页「日用优化」分区 |
-| 自动加载历史 | 打开会话时自动加载更早的对话历史 | 设置页「日用优化」分区 |
 | 全局指令 | 设置页编辑此主机全局指令（~/.dsh/AGENTS.md） | 设置页「日用优化」分区 |
 | MCP 管理 | 列出已安装的 MCP server（含 loader 装配的外部条目与实时工具面）+ 增删 / 导入 / 启停插件托管条目 + 关 / 卸载 profile 组合里的条目 | 设置页「日用优化」分区「MCP 管理」页签 |
 | Skills 管理 | 增删 / 导入 / 启停 Skill | 设置页「日用优化」分区「Skills 管理」页签 |
@@ -17,30 +14,7 @@ DSH（DeepSeek Harness）功能插件，按功能模块组织：
 
 所有配置 UI 统一收拢在设置页「日用优化」分区，含「插件设置」「模块开关」「MCP 管理」「Skills 管理」四个页签。
 
-## 输入能力（文字 / 视觉）
-
-设置页「日用优化 → 插件设置 → 模型思考等级」里，每个系列和每个模型都有「输入能力」
-开关（文字 / 视觉）。勾上「视觉」即向 `llm-pi-ai.providers.<route>.models[].input`
-写入 `[text, image]`，DSH 的模型选择器与图片准入会立刻认识该模型。
-
-解决的问题：自定义网关（edenai 这类中转）的 `/v1/models` 只返回 id，不公布能力
-元数据；`edenai` 也不在 pi-ai 的内置目录里。于是 pi-ai 的模态解析链
-`declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput]` 一路落空到
-路由级 `defaultInput`（默认 `['text']`）——模型明明能识图，DSH 却按纯文本处理，
-发图时报「当前模型不支持图片」（`MODEL_DOES_NOT_SUPPORT_IMAGES`）。
-
-注入规则（保守，零回归）：
-
-- 只有系列/模型**显式声明**模态才写入；缺省不注入，保持 pi-ai 目录原样；
-- 只在模型**完全没声明** `input` 时补（pi-ai 把缺省与空数组都视为「没配」）；
-- 已有 `input` 的模型**绝不覆盖**。
-
-> 注：`@anionex/dsh-vision-toolkit` 的变体路由只包装「已声明为纯文本」的模型
-> （`shouldWrapModel` 要求 `inputModalities` 不含 `image`）。一旦这里声明了视觉，
-> 该插件就不再为这个模型注册变体，两套机制自动协调、不冲突。且它的图片拦截只挂在
-> `document` 的 `paste` 事件（捕获阶段），文件选择器 / 拖拽路径本就不覆盖。
-
-### 两个必须知道的实现约束
+## 实现约束
 
 **1. `settings.mutate` 的 `set` 是整体替换，不是深合并。**
 `dsh-settings` 的 `applyPathOp` 对路径端点是 `{...section, [head]: op.value}`。
@@ -106,12 +80,9 @@ host 与浏览器半区共用**一条**精确 Fetch 路由 `/api/dsh-experience-
 
 按功能模块组织在 `src/features/` 下：
 
-- `model-reasoning/`：模型思考等级 + 输入能力（文字 / 视觉）
-- `model-params/`：模型参数手动覆盖
 - `cli-mimic/`：CLI 请求模拟
 - `open-folder/`：打开文件夹
 - `settings-page/`：设置页全屏化
-- `auto-load-history/`：自动加载历史
 - `my-rules/`：全局指令（My Rules，读写 ~/.dsh/AGENTS.md）
 - `mcp-manager/`：MCP server 管理
 - `skill-manager/`：Skill 管理
@@ -233,6 +204,7 @@ DSH 监听该文件并热重组，改完即生效、无需重启。**这段被�
 ```bash
 node scripts/verify-dsh-compat.mjs       # ★ DSH 升级后先跑这个：用 profile 真实运行时验兼容
 node scripts/verify-mcp-installed.mjs    # 假数据单测：三源合并 + 工具名切分 + editable 标记
+node scripts/verify-client-activate.mjs  # client 半区装配冒烟（替代开浏览器看 web boot 报错）
 node scripts/verify-real-profile.mjs     # 读真实 cordis.patch.yml 端到端验证
 node scripts/verify-ctx-get.mjs          # 验证 ctx.get() 在未 inject 时可用
 node scripts/verify-patch-locate.mjs     # 验证 patch 文件定位（上溯三层 + 仓库加载返回 null）

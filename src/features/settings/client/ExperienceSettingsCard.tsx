@@ -8,7 +8,6 @@
 import { useState, type ReactNode } from 'react'
 import { IconChevronDownOutlineMedium } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cx, ui } from '../../../client/design/index.js'
-import { ReasoningEditor } from '../../model-reasoning/client/ReasoningEditor.js'
 import { CliMimicEditor } from '../../cli-mimic/client/CliMimicEditor.js'
 import { MyRulesEditor } from '../../my-rules/client/MyRulesEditor.js'
 
@@ -48,24 +47,6 @@ export function ModuleCard({ title, description, defaultOpen = false, disabled =
       </button>
       {expanded ? <div className="dx-card__body">{children}</div> : null}
     </div>
-  )
-}
-
-export interface ModelReasoningCardProps {
-  api: any
-  rpc: any
-  remote: any
-  t: any
-  /** 禁用态（模块关闭时）。 */
-  disabled?: boolean
-}
-
-export function ModelReasoningCard(props: ModelReasoningCardProps): any {
-  const { api, rpc, remote, t, disabled } = props
-  return (
-    <ModuleCard title={t('nav')} description={t('cardDescription')} disabled={disabled}>
-      <ReasoningEditor api={api} rpc={rpc} remote={remote} t={t} />
-    </ModuleCard>
   )
 }
 

@@ -2,7 +2,6 @@
  * dsh-experience-plugin —— host 半区入口。
  *
  * 功能分配（每个功能一个模块，新增功能在此装配）：
- *   - features/model-reasoning/大模型思考等级（自动注入 + 系列配置 + 自由配置）
  *   - features/cli-mimic/CLI 请求模拟（本地代理 + fetch 拦截 + 配置工具）
  *   - features/open-folder/侧边栏项目行「在文件夹中显示」
  *   - features/my-rules/全局指令（读写 $DSH_HOME/AGENTS.md 的 RPC 通道）
@@ -24,35 +23,23 @@
  * - id: dsh-experience-plugin
  *   name: dsh-experience-plugin
  *   config:
- *     modelReasoning:
+ *     openFolder:
  *       enabled: true
- *       autoInject: true
- *       providers: []
  * ```
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { applyModelReasoning } from './features/model-reasoning/host.js'
-import { THINKING_LEVELS } from './features/model-reasoning/defaults.js'
-import { defaultEffortsSchema, familiesSchema } from './features/model-reasoning/settings.js'
 import { applyCliMimic, cliMimicConfigSchema } from './features/cli-mimic/host.js'
 import { applyOpenFolderHost } from './features/open-folder/host.js'
 import { applyMyRules } from './features/my-rules/host.js'
 import { applyMcpManager } from './features/mcp-manager/host.js'
 import { McpManagerSettingsSchema } from './features/mcp-manager/settings.js'
 import { applySkillManager } from './features/skill-manager/host.js'
-import { applyModelParamsHost } from './features/model-params/host.js'
-import { ModelParamsSettingsSchema } from './features/model-params/settings.js'
 import { applyExperienceRpc } from './features/rpc-channel.js'
 import { CONFIG_SECTIONS, EXPERIENCE_NS, type ConfigSections } from './features/config-sections.js'
 import { ensureNamespace } from './features/settings-compat.js'
 
 // 工具导出（测试 / 高级用法）：
-export { buildInjectionPatch, resolveEffortsForModel, resolveModalitiesForModel } from './features/model-reasoning/ops.js'
-export { MODEL_REASONING_NS, ModelReasoningSettingsSchema, defaultEffortsSchema, familiesSchema } from './features/model-reasoning/settings.js'
-export { MR_RPC_CHANNEL, MR_RPC_GET, MR_RPC_WRITE, dispatchMrRpc } from './features/model-reasoning/remote.js'
-export { DEFAULT_EFFORTS_BY_API, THINKING_LEVELS, FAMILY_PRESETS, BUILTIN_FAMILY_RULES, FALLBACK_EFFORTS, MODALITIES, normalizeModalities, modalitiesEqual } from './features/model-reasoning/defaults.js'
-export type { ReasoningEfforts, ModelModality } from './features/model-reasoning/defaults.js'
 export { CLI_MIMIC_NS, CliMimicConfigSchema, cliMimicConfigSchema, cliMimicSection, type Config as CliMimicConfig } from './features/cli-mimic/host.js'
 export { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
 export {
@@ -105,46 +92,16 @@ export function configSchema(volatile: boolean): z<Config> {
   const sections = {
     // hello 示例已删除；保留空段以免旧 patch 里的 hello 配置触发 schema 报错。
     hello: z.object({}).loose().default({}),
-    // 思考等级注入的功能开关（行配置：改这些走插件重启，不标 volatile）。
-    modelReasoning: z.object({
-      enabled: z.boolean(),
-      autoInject: z.boolean(),
-      effortsByApi: z.dict(
-        z.dict(z.union([z.string(), z.const(null)]), z.union(THINKING_LEVELS)),
-      ),
-      familyPresets: z.dict(
-        z.dict(z.union([z.string(), z.const(null)]), z.union(THINKING_LEVELS)),
-        z.string(),
-      ),
-      providers: z.array(z.string()),
-      upgradeLegacy: z.boolean(),
-    }).default({
-      enabled: true,
-      autoInject: true,
-      // 协议级 effortsByApi 默认留空：只有用户显式配置才作为"协议级覆盖"。
-      // 若默认填 DEFAULT_EFFORTS_BY_API，会短路模型族匹配（用户 grok 6 档
-      // 永远被内置 4 档压掉）——这是"新模型思考等级与预设不一致"的根因。
-      effortsByApi: {} as never,
-      familyPresets: {},
-      providers: [],
-      upgradeLegacy: true,
-    }),
     // 侧边栏「在文件夹中显示」开关（行配置）。
     openFolder: z.object({
       enabled: z.boolean(),
     }).default({ enabled: true }),
 
     // ── 以下为设置页可编辑的数据段 ──────────────────────────────────────
-    // 系列配置：兜底等级表 + 系列规则列表（原 `dsh-experience-plugin` 命名空间的
-    // 顶层字段；命名空间与 entry id 相同，故保持顶层不变以兼容已有数据）。
-    defaultEfforts: v(defaultEffortsSchema()),
-    families: v(familiesSchema()),
     // CLI 请求模拟（原 `cli-mimic` 独立命名空间，现并入本条目子段）。
     cliMimic: v(cliMimicConfigSchema()),
     // MCP 服务器注册表（原 `dsh-experience-mcp-manager` 命名空间）。
     mcpManager: v(McpManagerSettingsSchema),
-    // 模型参数覆盖规则（原 `dsh-experience-model-params` 命名空间）。
-    modelParams: v(ModelParamsSettingsSchema),
   }
   return z.object(sections) as unknown as z<Config>
 }
@@ -156,7 +113,7 @@ export const Config = configSchema(true)
 export const PlainConfig = configSchema(false)
 
 /** 本插件需要的服务（各功能服务的并集；settings 缺席时降级运行）。 */
-export const inject = ['settings', 'tools', 'credentials', 'llm', 'webServer', 'workspaceRegistry', 'connection'] as const
+export const inject = ['settings', 'tools', 'credentials', 'webServer', 'workspaceRegistry', 'connection'] as const
 
 /** 插件名（日志与诊断用）。同时也是 alpha 线的设置命名空间。 */
 export const name = EXPERIENCE_NS
@@ -185,8 +142,6 @@ export function apply(ctx: Context, config: Config = {} as Config): void {
     )
   }
 
-  applyModelReasoning(ctx, config.modelReasoning)
-  applyModelParamsHost(ctx)
   applyCliMimic(ctx)
   applyOpenFolderHost(ctx, config.openFolder ?? { enabled: true })
   applyMyRules(ctx)

@@ -1,6 +1,6 @@
 {
   "name": "dsh-experience-plugin",
-  "version": "0.7.11",
+  "version": "0.7.12",
   "description": "DSH plugin: CLI request mimic, MCP server manager, Skills manager and global rules, with a unified Daily Optimization settings section.",
   "type": "module",
   "main": "./lib/index.js",
@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "build": "pnpm build:types && pnpm build:js",
-    "build:types": "tsc -b",
+    "build:types": "tsc -b --clean && tsc -b",
     "build:js": "tsdown",
     "dev": "tsdown --watch",
     "deploy": "node scripts/deploy-to-profile.mjs",

@@ -23,7 +23,7 @@
  *    面板，避免误伤页面内其他模态对话框（全权限确认、文件错误提示等）；
  *  - 按官方 SettingsPanel 的子节点顺序定位 nav / content / options，不依赖
  *    CSS Modules hash 类名（每次构建会变），内联样式优先级最高、不怕漂移；
- *  - 入场 180ms 淡入上浮动画，遵循 prefers-reduced-motion。
+ *  - 入场 140ms 淡入，遵循 prefers-reduced-motion。
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 
@@ -101,7 +101,7 @@ const NAV_WIDTH = 240
 /** 全屏设置页内容区水平内边距（px，官方为 24）。 */
 const CONTENT_PAD = 36
 /** 入场动画时长（ms）。 */
-const OPEN_MS = 320
+const OPEN_MS = 140
 
 /** 官方设置面板标题候选文案（zh / en），命中才判定为设置面板。 */
 const SETTINGS_TITLES = new Set(['设置', 'Settings'])
@@ -124,9 +124,18 @@ interface SettingsChrome {
   mask: HTMLElement
   panel: HTMLElement
   nav: HTMLElement | null
+  /** 0.2.2 起标题移出 nav，成为 panel 的独立 grid 区域；0.2.1 及更早为 nav 的首个子元素。 */
+  navTitle: HTMLElement | null
+  /** 右侧内容列容器（仅旧版两栏结构存在；新版由 header + options 两个 grid 区域承担）。 */
   content: HTMLElement | null
   header: HTMLElement | null
   options: HTMLElement | null
+  /**
+   * 官方面板布局形态：
+   *  - grid：0.2.2+ 四区网格（title / header / nav / options），导航列宽由 grid-template-columns 决定；
+   *  - stack：0.2.1 及更早两栏 flex（nav + content），导航列宽由 nav 自身宽度决定。
+   */
+  layout: 'grid' | 'stack'
 }
 
 /**
@@ -147,22 +156,50 @@ function isSettingsPanel(el: Element): el is HTMLElement {
 }
 
 /**
- * 依据官方 SettingsPanel 的子 DOM 顺序定位各部件：
- *   overlay > [mask, panel[ nav, content[ header, options ] ] ]
- * 不依赖 hash 类名，纯结构定位（官方 JSX 保证顺序稳定）。
+ * 依据官方 SettingsPanel 的结构定位各部件，兼容两种官方版本：
+ *  - 0.2.1 及更早（stack）：overlay > [mask, panel[ nav[navTitle, navList], content[header, options] ] ]
+ *  - 0.2.2 起（grid）：   overlay > [mask, panel[ navTitle, nav[navList], header, options ] ]
+ *
+ * 定位只依赖语义结构（<nav> 标签 + aria-labelledby 指向的标题节点 + 面板 display），
+ * 不依赖 CSS Modules hash 类名（每次构建都变）。官方把 navTitle 从 nav 里提出来、
+ * 面板改成四区 grid 后，若仍按「第一个子节点是 nav」定位，返回按钮会被塞进标题格
+ * （跑到页面左上角）、分隔线会被画在标题格上（顶部多出一条竖线）——就是这里要解的。
  */
 function locateChrome(panel: HTMLElement): SettingsChrome {
   const overlay = panel.parentElement ?? panel
   // 官方 JSX：overlay 第一个子元素固定是遮罩 mask；缺位时退回 overlay 自身（不崩）。
   const mask = overlay.firstElementChild as HTMLElement | null
+  const children = Array.from(panel.children) as HTMLElement[]
+  // 两版都把导航栏渲染成 <nav>；旧版是 panel 首个子元素，新版是 title 之后的同级节点。
+  const nav = (panel.querySelector(':scope > nav') as HTMLElement | null) ?? children[0] ?? null
+  const titleId = panel.getAttribute('aria-labelledby')
+  const titleEl = titleId === null ? null : document.getElementById(titleId)
+  const navTitle = titleEl instanceof HTMLElement && panel.contains(titleEl) ? titleEl : null
+  // 新版标题是面板直接子节点；旧版藏在 nav 内。用标题位置 + 面板实际布局双重判定。
+  const gridLayout = getComputedStyle(panel).display.includes('grid')
+
+  let content: HTMLElement | null = null
+  let header: HTMLElement | null = null
+  let options: HTMLElement | null = null
+  if (gridLayout) {
+    options = children[children.length - 1] ?? null
+    header = children.find((el) => el !== navTitle && el !== nav && el !== options) ?? null
+  } else {
+    content = children[children.length - 1] ?? null
+    header = (content?.firstElementChild ?? null) as HTMLElement | null
+    options = (content?.lastElementChild ?? null) as HTMLElement | null
+  }
+
   return {
     overlay,
     mask: mask ?? overlay,
     panel,
-    nav: panel.firstElementChild as HTMLElement | null,
-    content: panel.lastElementChild as HTMLElement | null,
-    header: (panel.lastElementChild?.firstElementChild ?? null) as HTMLElement | null,
-    options: (panel.lastElementChild?.lastElementChild ?? null) as HTMLElement | null,
+    nav,
+    navTitle,
+    content,
+    header,
+    options,
+    layout: gridLayout ? 'grid' : 'stack',
   }
 }
 
@@ -189,7 +226,7 @@ function ensureBackButton(panel: HTMLElement, nav: HTMLElement): void {
 
 /** 把弹窗覆盖成「全屏页面」形态（幂等，可重复执行）。 */
 function applyFullscreen(chrome: SettingsChrome): void {
-  const { overlay, panel, nav, content, options } = chrome
+  const { overlay, panel, nav, content, options, layout } = chrome
 
   // 面板：撑满可用区域（100% 而非 100vw/100vh —— 桌面端 overlay 顶部有标题栏避让内边距），
   // 去圆角 / 阴影 / 居中约束
@@ -207,16 +244,36 @@ function applyFullscreen(chrome: SettingsChrome): void {
   // 背景不透明开关（跟随用户偏好，覆盖皮肤/主题的透明）
   applyOpaqueBg()
 
-  // 左侧导航加宽 + 发丝分隔线 + 细滚动条，贴近 macOS「系统设置」的观感
+  // 导航列宽 + 列分隔线：
+  //  - grid（0.2.2+）：列宽由面板 grid-template-columns 决定（官方 grid-template 的 188px 列）；
+  //  - stack（0.2.1-）：列宽由 nav 自身宽度决定。
+  // 两种形态的分隔线都由 .dx-settings-panel::after 按 --dx-nav-w 画通高竖线（样式层负责），
+  // 不再往官方子节点上挂 border —— 否则在 grid 版里会画到标题格上。
+  panel.classList.add('dx-settings-panel')
+  panel.style.setProperty('--dx-nav-w', `${NAV_WIDTH}px`)
+  // 窄窗口（<768px）官方会把导航变成横向标签条，此时不能强设列宽。
+  if (layout === 'grid' && window.innerWidth > 767) {
+    panel.style.gridTemplateColumns = `${NAV_WIDTH}px minmax(0, 1fr)`
+  }
+
+  // 左侧导航：细滚动条 + 左下角「返回」按钮（挂到 nav，margin-top:auto 钉底）
   if (nav !== null) {
-    nav.style.width = `${NAV_WIDTH}px`
-    nav.style.flex = 'none'
-    nav.style.borderRight = '1px solid var(--dsw-alias-border-l2, rgba(0, 0, 0, 0.1))'
+    if (layout === 'stack') {
+      nav.style.width = `${NAV_WIDTH}px`
+      nav.style.flex = 'none'
+    }
     nav.classList.add('dx-scroll', 'dx-settings-nav')
     ensureBackButton(panel, nav)
   }
 
-  // 内容区撑满剩余宽度并加大留白
+  // 右侧内容区撑满剩余宽度并加大留白
+  if (layout === 'grid') {
+    if (options !== null) {
+      options.style.padding = `0 ${CONTENT_PAD}px ${CONTENT_PAD}px`
+      options.classList.add('dx-scroll')
+    }
+    return
+  }
   if (content !== null) {
     content.style.flex = '1'
     content.style.minWidth = '0'
@@ -229,16 +286,10 @@ function applyFullscreen(chrome: SettingsChrome): void {
   }
 }
 
-/** 入场动画：苹果弹簧曲线下的「放大 + 上浮 + 淡入」（WAAPI 驱动，无视 CSS 优先级；尊重减少动态）。 */
+/** 入场动画：短促淡入（无缩放无位移，与 DSH 桌面端的轻量过渡一致；尊重减少动态）。 */
 function playOpen(panel: HTMLElement): void {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-  panel.animate(
-    [
-      { opacity: 0, transform: 'scale(0.988) translateY(10px)' },
-      { opacity: 1, transform: 'scale(1) translateY(0px)' },
-    ],
-    { duration: OPEN_MS, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
-  )
+  panel.animate([{ opacity: 0 }, { opacity: 1 }], { duration: OPEN_MS, easing: 'cubic-bezier(0.2, 0, 0.2, 1)' })
 }
 
 /**

@@ -13,6 +13,7 @@
  *
  * RPC 通道 /dsh-mcp-manager（connection.rpc，loopback）：
  *   mcp/manager/list · mcp/manager/add · mcp/manager/import · mcp/manager/toggle
+ *   mcp/manager/patch · mcp/manager/update · mcp/manager/remove · mcp/manager/order
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { apply as applyMcpClient, type Config as McpClientConfig } from '@deepseek-ai/dsh-mcp-client'
@@ -34,6 +35,12 @@ export const MCP_MANAGER_IMPORT = 'mcp/manager/import'
 export const MCP_MANAGER_TOGGLE = 'mcp/manager/toggle'
 /** 改 / 删 profile patch 层里的 loader 条目（「已安装」区的关与卸载）。 */
 export const MCP_MANAGER_PATCH = 'mcp/manager/patch'
+/** 行内编辑一个托管服务器（按当前名定位，patch 为字段补丁，可改名）。 */
+export const MCP_MANAGER_UPDATE = 'mcp/manager/update'
+/** 从注册表删除一个托管服务器（写回整份注册表，触发卸载）。 */
+export const MCP_MANAGER_REMOVE = 'mcp/manager/remove'
+/** 重排注册表（数组顺序即 reconcile 装配顺序与列表展示顺序）。 */
+export const MCP_MANAGER_ORDER = 'mcp/manager/order'
 
 /**
  * dsh 原生 MCP 服务器的模块名 —— loader 条目按此识别。
@@ -157,6 +164,19 @@ export function normalizeServerEntry(key: string, raw: Record<string, unknown>):
     url: str(raw.url),
     headers: strDict(raw.headers),
   }
+}
+
+/** 把任意值规范成 string[]（非数组 → []，丢弃非字符串项）。 */
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string') : []
+}
+
+/** 把任意值规范成 string 字典（非对象 → {}，丢弃非字符串值）。 */
+function toStringDict(value: unknown): Record<string, string> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out: Record<string, string> = {}
+  for (const [key, item] of Object.entries(value)) if (typeof item === 'string') out[key] = item
+  return out
 }
 
 /** 构造 RPC 错误。 */
@@ -428,6 +448,80 @@ async function dispatchMcpManagerRpcInner(
       return { ok: true, value: { entryId, action: 'toggle', enabled } }
     }
     return rpcError('mcp patch requires action "toggle" or "remove"')
+  }
+  if (endpoint === MCP_MANAGER_UPDATE) {
+    const body = payload as { name?: unknown; patch?: unknown } | undefined
+    const name = typeof body?.name === 'string' ? body.name.trim() : ''
+    if (!isValidServerName(name)) return rpcError('mcp update requires a valid server name')
+    const rawPatch = body?.patch
+    if (rawPatch === null || typeof rawPatch !== 'object' || Array.isArray(rawPatch)) {
+      return rpcError('mcp update requires a patch object')
+    }
+    const patch = rawPatch as Record<string, unknown>
+    const current = deps.servers()
+    const index = current.findIndex((s) => s.name === name)
+    if (index < 0) return rpcError('server not found: ' + name)
+    const target = current[index]
+    if (patch.name !== undefined && typeof patch.name !== 'string') return rpcError('server name must be a string')
+    if (patch.transport !== undefined && patch.transport !== 'stdio' && patch.transport !== 'streamable-http') {
+      return rpcError('transport must be "stdio" or "streamable-http"')
+    }
+    const nextName = typeof patch.name === 'string' ? patch.name.trim() : target.name
+    // 改名冲突：只能改成自己的名字，不能抢占别人的条目。
+    if (nextName !== target.name && current.some((s) => s.name === nextName)) {
+      return rpcError('server already exists: ' + nextName)
+    }
+    // 只合并 patch 里出现的字段；未出现的一律沿用原值。
+    const merged: McpServerInput = {
+      name: nextName,
+      transport: patch.transport === 'streamable-http' ? 'streamable-http' : patch.transport === 'stdio' ? 'stdio' : target.transport,
+      command: typeof patch.command === 'string' ? patch.command : target.command,
+      args: patch.args === undefined ? target.args : toStringArray(patch.args),
+      env: patch.env === undefined ? target.env : toStringDict(patch.env),
+      cwd: typeof patch.cwd === 'string' ? patch.cwd : target.cwd,
+      url: typeof patch.url === 'string' ? patch.url : target.url,
+      headers: patch.headers === undefined ? target.headers : toStringDict(patch.headers),
+    }
+    const invalid = validateServerInput(merged)
+    if (invalid !== null) return rpcError(invalid)
+    // 保留原 enabled 与数组位置：数组顺序即 reconcile 装配顺序。
+    const next = current.map((server, i) => (i === index ? { ...merged, enabled: target.enabled } : server))
+    // 无实际变化时不写回，避免无谓的 dispose + 重启。
+    if (JSON.stringify(next) === JSON.stringify(current)) return { ok: true, value: { name: nextName } }
+    await deps.replace(next)
+    return { ok: true, value: { name: nextName } }
+  }
+  if (endpoint === MCP_MANAGER_REMOVE) {
+    const body = payload as { name?: unknown } | undefined
+    const name = typeof body?.name === 'string' ? body.name.trim() : ''
+    if (!isValidServerName(name)) return rpcError('mcp remove requires a valid server name')
+    const current = deps.servers()
+    // 二次校验：删除前确认目标仍在注册表里（并发写入可能已经删掉了）。
+    if (!current.some((s) => s.name === name)) return rpcError('server not found: ' + name)
+    await deps.replace(current.filter((s) => s.name !== name))
+    return { ok: true, value: { name } }
+  }
+  if (endpoint === MCP_MANAGER_ORDER) {
+    const body = payload as { names?: unknown } | undefined
+    if (!Array.isArray(body?.names)) return rpcError('mcp order requires a names array')
+    // 未知名字忽略、重复名字只认第一次；未列出的条目保持原相对顺序追加到末尾。
+    const current = deps.servers()
+    const byName = new Map(current.map((s) => [s.name, s]))
+    const seen = new Set<string>()
+    const next: ManagedMcpServer[] = []
+    for (const raw of body.names) {
+      if (typeof raw !== 'string' || seen.has(raw)) continue
+      const server = byName.get(raw)
+      if (server === undefined) continue
+      seen.add(raw)
+      next.push(server)
+    }
+    for (const server of current) if (!seen.has(server.name)) next.push(server)
+    if (next.every((server, i) => server === current[i])) {
+      return { ok: true, value: { names: current.map((s) => s.name) } }
+    }
+    await deps.replace(next)
+    return { ok: true, value: { names: next.map((s) => s.name) } }
   }
   return rpcError('unknown mcp-manager endpoint: ' + endpoint)
 }

@@ -13,7 +13,11 @@
  * 导入 = 本地目录复制，或 SkillHub slug（走官方 skillhub CLI 装到 skills 目录）。
  *
  * 通信走官方通用 RPC 通道（connection.rpc），channel 独立：
- *   skill/manager/list · skill/manager/toggle · skill/manager/add · skill/manager/import
+ *   skill/manager/list · toggle · add · import · update · remove · order
+ *
+ * 更新（改名/改描述）就地改写 frontmatter（改名同时改目录名/文件名）；
+ * 删除是物理删除（先校验存在，路径必须落在 skills 或 .disabled 内）；
+ * 排序持久化到 skills/.order.json，list 按它输出（未记录的名字按字母序追加）。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -34,6 +38,12 @@ export const SKILL_MANAGER_TOGGLE = 'skill/manager/toggle'
 export const SKILL_MANAGER_ADD = 'skill/manager/add'
 /** 导入一个技能（本地目录 / SkillHub slug）。 */
 export const SKILL_MANAGER_IMPORT = 'skill/manager/import'
+/** 更新一个技能（改名 / 改描述）。 */
+export const SKILL_MANAGER_UPDATE = 'skill/manager/update'
+/** 删除一个技能（物理删除，含 .disabled 变体）。 */
+export const SKILL_MANAGER_REMOVE = 'skill/manager/remove'
+/** 持久化技能顺序（写入 skills/.order.json）。 */
+export const SKILL_MANAGER_ORDER = 'skill/manager/order'
 
 /** 技能形态：目录 bundle 或平铺 Markdown。 */
 export type SkillKind = 'bundle' | 'flat'
@@ -104,7 +114,17 @@ export function parseSkillFrontmatter(content: string): { name?: string; descrip
   const descLine = /(?:^|\n)description:\s*(.+?)\s*$/m.exec(block)
   const clean = (s: string | undefined): string | undefined => {
     if (s === undefined) return undefined
-    return s.trim().replace(/^["']|["']$/g, '').trim()
+    const trimmed = s.trim()
+    // 双引号标量按 JSON 转义写回（见 yamlQuote），这里对称还原；非法转义退回裸文本
+    if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed)
+        if (typeof parsed === 'string') return parsed
+      } catch {
+        // 非法转义：退回去引号文本
+      }
+    }
+    return trimmed.replace(/^["']|["']$/g, '').trim()
   }
   return { name: clean(nameLine?.[1]), description: clean(descLine?.[1]) }
 }
@@ -146,16 +166,176 @@ function scanRoot(dshHome: string, root: string, enabled: boolean): ManagedSkill
   return entries.sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** 列出全部技能（启用 + 已关闭）。 */
+/** 排序文件名（skills 根下隐藏文件；不含 SKILL.md，不会被 discovery 当成技能）。 */
+const ORDER_FILE = '.order.json'
+
+/** 持久化顺序：启用段与关闭段各一份名字数组。 */
+export interface SkillOrder {
+  enabled: string[]
+  disabled: string[]
+}
+
+/** 读取排序文件；缺失或损坏时返回空顺序（list 退回字母序，不报错）。 */
+function readOrder(dshHome: string): SkillOrder {
+  const file = path.join(skillsRoot(dshHome), ORDER_FILE)
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as { enabled?: unknown; disabled?: unknown } | null
+    const pick = (value: unknown): string[] =>
+      Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && isValidSkillName(item)) : []
+    return { enabled: pick(raw?.enabled), disabled: pick(raw?.disabled) }
+  } catch {
+    return { enabled: [], disabled: [] }
+  }
+}
+
+/** 写入排序文件；失败返回 false（排序不是致命状态）。 */
+function writeOrder(dshHome: string, order: SkillOrder): boolean {
+  try {
+    const root = skillsRoot(dshHome)
+    fs.mkdirSync(root, { recursive: true })
+    fs.writeFileSync(path.join(root, ORDER_FILE), JSON.stringify(order, null, 2) + '\n', 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** 按持久化顺序排序；未记录的名字按字母序追加到末尾。 */
+function sortByOrder(entries: ManagedSkill[], order: string[]): ManagedSkill[] {
+  const rank = new Map<string, number>()
+  order.forEach((name, index) => rank.set(name, index))
+  return entries.slice().sort((a, b) => {
+    const left = rank.get(a.name)
+    const right = rank.get(b.name)
+    if (left !== undefined && right !== undefined) return left - right
+    if (left !== undefined) return -1
+    if (right !== undefined) return 1
+    return a.name.localeCompare(b.name)
+  })
+}
+
+/** 合并顺序：请求顺序优先，其次旧顺序，最后按字母序补齐当前实际条目。 */
+function buildOrder(incoming: string[], previous: string[], actual: string[]): string[] {
+  const exists = new Set(actual)
+  const seen = new Set<string>()
+  const out: string[] = []
+  const push = (name: string): void => {
+    if (seen.has(name) || !exists.has(name)) return
+    seen.add(name)
+    out.push(name)
+  }
+  incoming.forEach(push)
+  previous.forEach(push)
+  actual.slice().sort((a, b) => a.localeCompare(b)).forEach(push)
+  return out
+}
+
+/** child 是否严格落在 parent 之下（防 ../ 逃逸）。 */
+function isInsidePath(parent: string, child: string): boolean {
+  const rel = path.relative(parent, child)
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
+/** 安全判断路径是否目录（不存在/无权限都算否）。 */
+function isDirectory(target: string): boolean {
+  try {
+    return fs.statSync(target).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** 安全判断路径是否文件（不存在/无权限都算否）。 */
+function isFile(target: string): boolean {
+  try {
+    return fs.statSync(target).isFile()
+  } catch {
+    return false
+  }
+}
+
+/** 提取错误信息文本。 */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/** 定位一个技能在磁盘上的实体（启用根优先，其次 .disabled）。 */
+interface LocatedSkill {
+  /** skills 根或 .disabled 根。 */
+  root: string
+  /** bundle = 目录 / flat = 单个 .md。 */
+  kind: SkillKind
+  /** true = 在 skills 根下；false = 在 .disabled 下。 */
+  enabled: boolean
+  /** 实体路径：bundle 目录或 flat 的 .md 文件。 */
+  entryPath: string
+  /** 承载 frontmatter 的文件：bundle = SKILL.md，flat = .md 自身。 */
+  file: string
+}
+
+/** 按名字定位技能实体；找不到返回 null。 */
+function locateSkill(dshHome: string, name: string): LocatedSkill | null {
+  const roots: { root: string; enabled: boolean }[] = [
+    { root: skillsRoot(dshHome), enabled: true },
+    { root: disabledSkillsRoot(dshHome), enabled: false },
+  ]
+  for (const { root, enabled } of roots) {
+    const dir = path.join(root, name)
+    if (isDirectory(dir)) {
+      const file = path.join(dir, 'SKILL.md')
+      if (isFile(file)) return { root, kind: 'bundle', enabled, entryPath: dir, file }
+    }
+    const file = path.join(root, name + '.md')
+    if (isFile(file)) return { root, kind: 'flat', enabled, entryPath: file, file }
+  }
+  return null
+}
+
+/** YAML 双引号标量：转义反斜杠/引号/换行（JSON 转义对 YAML 双引号串同样合法）。 */
+function yamlQuote(value: string): string {
+  return JSON.stringify(value)
+}
+
+/**
+ * 改写 Markdown frontmatter 的单个字段，其余字段与正文原样保留。
+ * 文件没有 frontmatter 时在开头补一段；旧值是块状（缩进续行）时连同续行一起替换。
+ * @param content - 原始文件内容。
+ * @param field - 字段名（name / description）。
+ * @param value - 新值。
+ * @returns 改写后的内容（换行风格与原文一致）。
+ */
+function setFrontmatterField(content: string, field: string, value: string): string {
+  const bom = content.startsWith('\uFEFF') ? '\uFEFF' : ''
+  const body = bom === '' ? content : content.slice(1)
+  const nl = body.includes('\r\n') ? '\r\n' : '\n'
+  const line = `${field}: ${yamlQuote(value)}`
+  const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(body)
+  if (block === null) return bom + ['---', line, '---', '', body].join(nl)
+  const lines = block[1].split(/\r?\n/)
+  const index = lines.findIndex((item) => item.startsWith(field + ':'))
+  if (index === -1) {
+    lines.push(line)
+  } else {
+    // 旧值可能是块状（后续缩进行属于该字段），一并丢弃
+    let end = index + 1
+    while (end < lines.length && /^[ \t]/.test(lines[end])) end += 1
+    lines.splice(index, end - index, line)
+  }
+  const rest = body.slice(block[0].length)
+  return bom + ['---', ...lines, '---'].join(nl) + rest
+}
+
+/** 列出全部技能（启用 + 已关闭），按 .order.json 的顺序输出。 */
 function handleList(): RpcResult<SkillManagerView> {
   const dshHome = resolveDshHome()
   const root = skillsRoot(dshHome)
   const disabled = disabledSkillsRoot(dshHome)
+  const order = readOrder(dshHome)
   return {
     ok: true,
     value: {
-      skills: scanRoot(dshHome, root, true),
-      disabled: scanRoot(dshHome, disabled, false),
+      skills: sortByOrder(scanRoot(dshHome, root, true), order.enabled),
+      disabled: sortByOrder(scanRoot(dshHome, disabled, false), order.disabled),
       root: `${displayHome(dshHome)}/skills`,
     },
   }
@@ -193,7 +373,159 @@ function handleToggle(payload: unknown): RpcResult<ManagedSkill> {
   } catch (error) {
     return rpcError('toggle skill failed: ' + (error instanceof Error ? error.message : String(error)))
   }
+  // 排序文件里跟着换段：保留原位置（同下标插入目标段），来回切换顺序不变
+  const order = readOrder(dshHome)
+  const from = enabled ? order.disabled : order.enabled
+  const to = enabled ? order.enabled : order.disabled
+  const at = from.indexOf(name)
+  if (at !== -1) from.splice(at, 1)
+  if (!to.includes(name)) to.splice(at === -1 ? to.length : Math.min(at, to.length), 0, name)
+  writeOrder(dshHome, order)
   return { ok: true, value: { ...match.entry, enabled } }
+}
+
+/** 更新一个技能：改描述（frontmatter）与改名（目录/文件 + frontmatter 同步）。 */
+function handleUpdate(payload: unknown): RpcResult<ManagedSkill> {
+  const body = payload as { name?: unknown; patch?: { name?: unknown; description?: unknown } | undefined } | undefined
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  if (!isValidSkillName(name)) return rpcError('skill update requires a valid skill name')
+  const patch = body?.patch ?? {}
+  const nextName = typeof patch.name === 'string' ? patch.name.trim() : undefined
+  const nextDescription = typeof patch.description === 'string' ? patch.description : undefined
+  if (nextName === undefined && nextDescription === undefined) {
+    return rpcError('skill update requires patch.name or patch.description')
+  }
+  if (nextName !== undefined && !isValidSkillName(nextName)) {
+    return rpcError('invalid new skill name (a-z0-9._-, max 64, not starting with .)')
+  }
+  if (nextDescription !== undefined && nextDescription.length > 2000) return rpcError('skill description too long')
+  const dshHome = resolveDshHome()
+  const located = locateSkill(dshHome, name)
+  if (located === null) return rpcError('skill not found: ' + name)
+  let content: string
+  try {
+    content = fs.readFileSync(located.file, 'utf8')
+  } catch (error) {
+    return rpcError('read skill failed: ' + errorMessage(error))
+  }
+  let nextContent = content
+  if (nextDescription !== undefined) nextContent = setFrontmatterField(nextContent, 'description', nextDescription)
+  const targetName = nextName !== undefined && nextName !== name ? nextName : null
+  if (targetName !== null) {
+    // 目标名在启用段与关闭段都不能已存在（bundle 目录与 flat 文件都算冲突）
+    const conflict = [skillsRoot(dshHome), disabledSkillsRoot(dshHome)].some(
+      (root) => fs.existsSync(path.join(root, targetName)) || fs.existsSync(path.join(root, targetName + '.md')),
+    )
+    if (conflict) return rpcError('skill already exists: ' + targetName)
+    nextContent = setFrontmatterField(nextContent, 'name', targetName)
+  }
+  try {
+    fs.writeFileSync(located.file, nextContent, 'utf8')
+  } catch (error) {
+    return rpcError('update skill failed: ' + errorMessage(error))
+  }
+  let entryName = name
+  if (targetName !== null) {
+    const suffix = located.kind === 'flat' ? '.md' : ''
+    const target = path.join(located.root, targetName + suffix)
+    try {
+      fs.renameSync(located.entryPath, target)
+    } catch (error) {
+      // 改名失败：把内容回滚，避免「名字没改成但 frontmatter 已变」的半截状态
+      try {
+        fs.writeFileSync(located.file, content, 'utf8')
+      } catch {
+        // 回滚失败只能保留现状
+      }
+      return rpcError('rename skill failed: ' + errorMessage(error))
+    }
+    entryName = targetName
+    // 顺序文件里同步旧名字
+    const order = readOrder(dshHome)
+    const section = located.enabled ? order.enabled : order.disabled
+    const at = section.indexOf(name)
+    if (at !== -1) {
+      section[at] = targetName
+      writeOrder(dshHome, order)
+    }
+  }
+  const entry = scanEntry(located.root, located.kind === 'flat' ? entryName + '.md' : entryName, located.kind === 'bundle', located.enabled)
+  if (entry === null) return rpcError('skill updated but re-read failed: ' + entryName)
+  return { ok: true, value: entry }
+}
+
+/** 删除一个技能（物理删除；启用/关闭两处的同名目录或 .md 都清掉）。 */
+function handleRemove(payload: unknown): RpcResult<{ name: string }> {
+  const body = payload as { name?: unknown } | undefined
+  const name = typeof body?.name === 'string' ? body.name.trim() : ''
+  if (!isValidSkillName(name)) return rpcError('skill remove requires a valid skill name')
+  const dshHome = resolveDshHome()
+  const root = path.resolve(skillsRoot(dshHome))
+  const disabled = path.resolve(disabledSkillsRoot(dshHome))
+  const candidates = [
+    path.join(root, name),
+    path.join(root, name + '.md'),
+    path.join(disabled, name),
+    path.join(disabled, name + '.md'),
+  ]
+  // 二次校验：目标路径必须落在 skills 或 .disabled 之内（防 ../ 逃逸），且先确认存在。
+  const targets = candidates.filter((item) => (isInsidePath(root, item) || isInsidePath(disabled, item)) && fs.existsSync(item))
+  if (targets.length === 0) return rpcError('skill not found: ' + name)
+  try {
+    for (const target of targets) fs.rmSync(target, { recursive: true, force: true })
+  } catch (error) {
+    return rpcError('remove skill failed: ' + errorMessage(error))
+  }
+  const order = readOrder(dshHome)
+  const next: SkillOrder = {
+    enabled: order.enabled.filter((item) => item !== name),
+    disabled: order.disabled.filter((item) => item !== name),
+  }
+  if (next.enabled.length !== order.enabled.length || next.disabled.length !== order.disabled.length) writeOrder(dshHome, next)
+  return { ok: true, value: { name } }
+}
+
+/**
+ * 持久化技能顺序。
+ * payload 支持两种形态：
+ *   - { names: string[] }：单个有序列表，按磁盘归属自动分到启用段/关闭段；
+ *   - { enabled?: string[]; disabled?: string[] }：显式分段。
+ * 请求里没提到的既有名字保留原相对顺序，新名字按字母序追加。
+ */
+function handleOrder(payload: unknown): RpcResult<SkillOrder> {
+  const body = payload as { names?: unknown; enabled?: unknown; disabled?: unknown } | undefined
+  const dshHome = resolveDshHome()
+  const current: SkillOrder = {
+    enabled: scanRoot(dshHome, skillsRoot(dshHome), true).map((item) => item.name),
+    disabled: scanRoot(dshHome, disabledSkillsRoot(dshHome), false).map((item) => item.name),
+  }
+  const previous = readOrder(dshHome)
+  const incoming: SkillOrder = { enabled: [], disabled: [] }
+  const push = (target: string[], value: unknown): void => {
+    if (!Array.isArray(value)) return
+    for (const item of value) {
+      if (typeof item !== 'string' || !isValidSkillName(item)) continue
+      if (!target.includes(item)) target.push(item)
+    }
+  }
+  push(incoming.enabled, body?.enabled)
+  push(incoming.disabled, body?.disabled)
+  if (Array.isArray(body?.names)) {
+    for (const item of body.names) {
+      if (typeof item !== 'string' || !isValidSkillName(item)) continue
+      if (current.enabled.includes(item)) {
+        if (!incoming.enabled.includes(item)) incoming.enabled.push(item)
+      } else if (current.disabled.includes(item) && !incoming.disabled.includes(item)) {
+        incoming.disabled.push(item)
+      }
+    }
+  }
+  const next: SkillOrder = {
+    enabled: buildOrder(incoming.enabled, previous.enabled, current.enabled),
+    disabled: buildOrder(incoming.disabled, previous.disabled, current.disabled),
+  }
+  if (!writeOrder(dshHome, next)) return rpcError('write skill order failed')
+  return { ok: true, value: next }
 }
 
 /** 最小 SKILL.md 模板。 */
@@ -306,6 +638,9 @@ export async function dispatchSkillManagerRpc(endpoint: string, payload: unknown
   if (endpoint === SKILL_MANAGER_TOGGLE) return handleToggle(payload)
   if (endpoint === SKILL_MANAGER_ADD) return handleAdd(payload)
   if (endpoint === SKILL_MANAGER_IMPORT) return handleImport(payload)
+  if (endpoint === SKILL_MANAGER_UPDATE) return handleUpdate(payload)
+  if (endpoint === SKILL_MANAGER_REMOVE) return handleRemove(payload)
+  if (endpoint === SKILL_MANAGER_ORDER) return handleOrder(payload)
   return rpcError('unknown skill-manager endpoint: ' + endpoint)
 }
 

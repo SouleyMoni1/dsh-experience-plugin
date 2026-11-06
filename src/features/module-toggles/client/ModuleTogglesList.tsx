@@ -70,7 +70,7 @@ export function ModuleTogglesList({ states, onToggle }: ModuleTogglesListProps):
   }, [ids.join(',')])
 
   return (
-    <div ref={listRef}>
+    <div ref={listRef} className="dx-row-grid">
       {ids.map((id) => {
         const m = MODULES.find((x) => x.id === id)!
         const on = states[m.id]

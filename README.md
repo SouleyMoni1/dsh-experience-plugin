@@ -8,8 +8,8 @@ DSH（DeepSeek Harness）功能插件，按功能模块组织：
 | 打开文件夹 | 工作区行菜单打开项目目录 | 插件行 `openFolder` 段 |
 | 设置页全屏化 | 设置弹窗改全屏页 + 背景不透明开关 | 设置页「日用优化」分区 |
 | 全局指令 | 设置页编辑此主机全局指令（~/.dsh/AGENTS.md） | 设置页「日用优化」分区 |
-| MCP 管理 | 列出已安装的 MCP server（含 loader 装配的外部条目与实时工具面）+ 增删 / 导入 / 启停插件托管条目 + 关 / 卸载 profile 组合里的条目 | 设置页「日用优化」分区「MCP 管理」页签 |
-| Skills 管理 | 增删 / 导入 / 启停 Skill | 设置页「日用优化」分区「Skills 管理」页签 |
+| MCP 管理 | 列出已安装的 MCP server（含 loader 装配的外部条目与实时工具面）+ 插件托管条目的增 / 删 / 改（含改名）/ 搜索 / 排序 / 导入 / 启停 + 已安装条目的关 / 卸载 | 设置页「日用优化」分区「MCP 管理」页签 |
+| Skills 管理 | Skill 的增 / 删 / 改（改名、改描述）/ 搜索 / 排序 / 导入 / 启停 | 设置页「日用优化」分区「Skills 管理」页签 |
 | 模块开关 | 各功能模块独立启停 | 设置页「日用优化」分区「模块开关」页签 |
 
 所有配置 UI 统一收拢在设置页「日用优化」分区，含「插件设置」「模块开关」「MCP 管理」「Skills 管理」四个页签。
@@ -95,7 +95,7 @@ host 与浏览器半区共用**一条**精确 Fetch 路由 `/api/dsh-experience-
 
 - `rpc-transport.ts`：`createExperienceRpc()`，与 host 入口路由配套的 RPC 调用器
 - `settings-access.ts`：`settingsScope` 访问面封装（`describe` / `update` / `mutate`）
-- `design/`：客户端界面设计系统（Apple HIG 取向的设计令牌 + `.dx-*` 类样式层），
+- `design/`：客户端界面设计系统（对齐 DSH 桌面端官方尺度的设计令牌 + `.dx-*` 类样式层），
   说明见 [docs/ui-design-system.md](docs/ui-design-system.md)；所有设置界面统一使用它
 
 ## 本地开发与部署（重要）
@@ -170,7 +170,7 @@ DSH 的设置契约只有两条，插件靠 `typeof settings.register === 'funct
 | DSH 线 | 契约 | 命名空间来源 | peer 范围 |
 | --- | --- | --- | --- |
 | `0.1.5-rc.x`（稳定线） | 有 `settings.register()` | 插件注册时指定 | `^0.1.5-rc.1` |
-| `0.1.7-alpha.x` 起（含 rc / `0.2.0-rc.x` / `0.2.1-rc.x`） | 无 `register`；可写字段必须 `.volatile()` | loader 条目 id | `^0.1.7-alpha.1` / `^0.2.0-rc.1` / `^0.2.1-alpha.1` |
+| `0.1.7-alpha.x` 起（含 rc / `0.2.0-rc.x` / `0.2.1-rc.x` / `0.2.2-rc.x`） | 无 `register`；可写字段必须 `.volatile()` | loader 条目 id | `^0.1.7-alpha.1` / `^0.2.0-rc.1` / `^0.2.1-alpha.1` / `^0.2.2-rc.1` |
 
 `0.2.0-rc.1`、`0.2.1-rc.2` 的 `dsh-settings` 与 `0.1.7` 线逐字一致（`volatile` 机制、
 「命名空间 = `configEditor.entries()` 里 `options.id === ns`」、三条报错文案全同），
@@ -180,6 +180,18 @@ DSH 的设置契约只有两条，插件靠 `typeof settings.register === 'funct
 semver 的预发布规则要求**每个 minor 显式补一段 alternation**：`^0.1.7-alpha.1` 不匹配
 `0.2.0-rc.1`，`^0.2.0-rc.1` 也不匹配 `0.2.1-rc.2`。DSH 发新 minor 时：先跑
 `verify-dsh-compat`，通过后把该 minor 追加进 `peerDependencies`。
+
+**设置面板 DOM 结构在 0.2.2 改过一次**（全屏设置页要跟着改，0.7.13 已适配）：
+
+| DSH 线 | 官方 `SettingsPanel` 子节点 | 布局 |
+| --- | --- | --- |
+| `0.2.1` 及更早 | `[nav[navTitle, navList], content[header, options]]` | 两栏 flex，nav 是首个子节点 |
+| `0.2.2` 起 | `[navTitle, nav, header, options]` | 四区 grid：`"title header" "nav options" / 188px 1fr` |
+
+所以 `src/features/settings-page` **不能按子节点顺序定位**：0.2.2 里面板首个子节点是标题格，
+按顺序取会把「返回」按钮塞进标题行、把分隔线画到标题格上。现在改为语义定位：
+`panel > nav` + `aria-labelledby` 指向的标题节点 + `getComputedStyle(panel).display`
+判定 grid / flex 分支，新 DSH minor 再改结构时先核对这三处。
 
 ### MCP 条目住哪儿（排查用）
 

@@ -54,7 +54,7 @@ const sectionStyle: CSSProperties = {
   ...ui.content,
   display: 'flex',
   flexDirection: 'column',
-  gap: 18,
+  gap: 16,
 }
 
 /** 页签 id。 */
@@ -144,16 +144,16 @@ export function DailyOptimizationSection(props: DailyOptimizationSectionProps): 
         ) : active === 'modules' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <p className="dx-section__intro" style={{ marginBottom: 8 }}>{t('modulesIntro')}</p>
-            <div className="dx-card dx-rise" style={{ padding: '4px 18px', boxSizing: 'border-box' }}>
+            <div className="dx-card dx-rise" style={{ padding: '4px 20px', boxSizing: 'border-box' }}>
               <ModuleTogglesList states={moduleStates} onToggle={toggleModule} />
             </div>
           </div>
         ) : active === 'mcp' ? (
-          <div className="dx-card dx-rise" style={{ padding: '14px 18px', boxSizing: 'border-box' }}>
+          <div className="dx-card dx-rise" style={{ padding: '16px 20px', boxSizing: 'border-box' }}>
             <McpManagerCard rpc={rpc} t={mcpT} bare />
           </div>
         ) : (
-          <div className="dx-card dx-rise" style={{ padding: '14px 18px', boxSizing: 'border-box' }}>
+          <div className="dx-card dx-rise" style={{ padding: '16px 20px', boxSizing: 'border-box' }}>
             <SkillManagerCard rpc={rpc} t={skillT} bare />
           </div>
         )}

@@ -16,6 +16,10 @@ export type McpManagerLocaleKey =
   | 'external' | 'toolCount' | 'notConnected'
   | 'patchToggleOn' | 'patchToggleOff' | 'uninstall' | 'uninstallConfirm' | 'cancel'
   | 'patchToggleOk' | 'patchRemoveOk' | 'patchFailed' | 'uninstallHint' | 'composed'
+  | 'searchPlaceholder' | 'searchEmpty' | 'clearSearch'
+  | 'edit' | 'save' | 'saving' | 'editOk' | 'editFailed' | 'renameHint'
+  | 'moveUp' | 'moveDown' | 'orderOk' | 'orderFailed'
+  | 'delete' | 'deleteConfirm' | 'deleteOk' | 'deleteFailed'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -27,7 +31,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** 中文文案。 */
 export const zh: Record<McpManagerLocaleKey, string> = {
   nav: 'MCP 管理',
-  cardDescription: '管理 MCP 服务器：新增、导入、开启/关闭（启用后动态装载 mcp__工具）',
+  cardDescription: '管理 MCP 服务器：搜索、新增、编辑、删除、排序、导入、开启/关闭（启用后动态装载 mcp__工具）',
   loading: '加载中…',
   loadFailed: '加载失败: ',
   none: '（无）',
@@ -77,12 +81,29 @@ export const zh: Record<McpManagerLocaleKey, string> = {
   patchFailed: '操作失败: ',
   uninstallHint: '卸载会从 cordis.patch.yml 删除该条目定义（自动备份原文件）。',
   composed: '组合层',
+  searchPlaceholder: '搜索服务器（名称 / 说明）',
+  searchEmpty: '没有匹配的服务器',
+  clearSearch: '清空',
+  edit: '编辑',
+  save: '保存',
+  saving: '保存中…',
+  editOk: '已保存服务器 {name}',
+  editFailed: '保存失败: ',
+  renameHint: '改名会把工具命名空间从 mcp__{from}__* 改为 mcp__{to}__*，模型侧工具名随之变化。',
+  moveUp: '上移',
+  moveDown: '下移',
+  orderOk: '顺序已保存',
+  orderFailed: '排序失败: ',
+  delete: '删除',
+  deleteConfirm: '确认删除',
+  deleteOk: '已删除服务器 {name}',
+  deleteFailed: '删除失败: ',
 }
 
 /** 英文文案。 */
 export const en: Record<McpManagerLocaleKey, string> = {
   nav: 'MCP',
-  cardDescription: 'Manage MCP servers: add, import, enable/disable (enabled ones are loaded live as mcp__ tools)',
+  cardDescription: 'Manage MCP servers: search, add, edit, delete, reorder, import, enable/disable (enabled ones are loaded live as mcp__ tools)',
   loading: 'Loading…',
   loadFailed: 'Load failed: ',
   none: '(none)',
@@ -132,4 +153,21 @@ export const en: Record<McpManagerLocaleKey, string> = {
   patchFailed: 'Operation failed: ',
   uninstallHint: 'Uninstall deletes the entry from cordis.patch.yml (the original file is backed up automatically).',
   composed: 'composition',
+  searchPlaceholder: 'Search servers (name / description)',
+  searchEmpty: 'No matching servers',
+  clearSearch: 'Clear',
+  edit: 'Edit',
+  save: 'Save',
+  saving: 'Saving…',
+  editOk: 'Server {name} saved',
+  editFailed: 'Save failed: ',
+  renameHint: 'Renaming changes the tool namespace from mcp__{from}__* to mcp__{to}__*; model-side tool names change accordingly.',
+  moveUp: 'Move up',
+  moveDown: 'Move down',
+  orderOk: 'Order saved',
+  orderFailed: 'Reorder failed: ',
+  delete: 'Delete',
+  deleteConfirm: 'Confirm delete',
+  deleteOk: 'Server {name} deleted',
+  deleteFailed: 'Delete failed: ',
 }

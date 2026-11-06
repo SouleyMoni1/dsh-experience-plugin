@@ -12,6 +12,10 @@ export type SkillManagerLocaleKey =
   | 'addTab' | 'addName' | 'addDesc' | 'addDescPlaceholder' | 'addBtn' | 'adding'
   | 'importTab' | 'importSourceLocal' | 'importSourceSkillhub' | 'importPathPlaceholder' | 'importSlugPlaceholder' | 'importBtn' | 'importing'
   | 'addOk' | 'importOk' | 'toggleOk'
+  | 'searchPlaceholder' | 'clearSearch' | 'noMatch'
+  | 'edit' | 'save' | 'saving' | 'cancel' | 'editOk' | 'editFailed'
+  | 'remove' | 'confirmDelete' | 'removeOk' | 'removeFailed'
+  | 'moveUp' | 'moveDown' | 'orderOk' | 'orderFailed'
   | 'opFailed' | 'toggleFailed' | 'addFailed' | 'importFailed' | 'emptyName' | 'emptyPath'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -24,7 +28,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** 中文文案。 */
 export const zh: Record<SkillManagerLocaleKey, string> = {
   nav: '技能管理',
-  cardDescription: '管理 ~/.dsh/skills 下的技能：新增、导入、开启/关闭',
+  cardDescription: '管理 ~/.dsh/skills 下的技能：搜索、编辑、删除、排序、新增、导入、开启/关闭',
   loading: '加载中…',
   loadFailed: '加载失败: ',
   none: '（无）',
@@ -51,6 +55,23 @@ export const zh: Record<SkillManagerLocaleKey, string> = {
   addOk: '已创建技能 {name}',
   importOk: '已导入技能 {name}',
   toggleOk: '已{action}技能 {name}',
+  searchPlaceholder: '搜索技能名或描述',
+  clearSearch: '清空',
+  noMatch: '没有匹配的技能',
+  edit: '编辑',
+  save: '保存',
+  saving: '保存中…',
+  cancel: '取消',
+  editOk: '已更新技能 {name}',
+  editFailed: '更新失败: ',
+  remove: '删除',
+  confirmDelete: '确认删除',
+  removeOk: '已删除技能 {name}',
+  removeFailed: '删除失败: ',
+  moveUp: '上移',
+  moveDown: '下移',
+  orderOk: '已保存排序',
+  orderFailed: '排序保存失败: ',
   opFailed: '操作失败: ',
   toggleFailed: '切换失败: ',
   addFailed: '创建失败: ',
@@ -62,7 +83,7 @@ export const zh: Record<SkillManagerLocaleKey, string> = {
 /** 英文文案。 */
 export const en: Record<SkillManagerLocaleKey, string> = {
   nav: 'Skills',
-  cardDescription: 'Manage skills under ~/.dsh/skills: add, import, enable/disable',
+  cardDescription: 'Manage skills under ~/.dsh/skills: search, edit, remove, reorder, add, import, enable/disable',
   loading: 'Loading…',
   loadFailed: 'Load failed: ',
   none: '(none)',
@@ -89,6 +110,23 @@ export const en: Record<SkillManagerLocaleKey, string> = {
   addOk: 'Skill {name} created',
   importOk: 'Skill {name} imported',
   toggleOk: 'Skill {name} turned {action}',
+  searchPlaceholder: 'Search skill name or description',
+  clearSearch: 'Clear',
+  noMatch: 'No matching skills',
+  edit: 'Edit',
+  save: 'Save',
+  saving: 'Saving…',
+  cancel: 'Cancel',
+  editOk: 'Skill {name} updated',
+  editFailed: 'Update failed: ',
+  remove: 'Delete',
+  confirmDelete: 'Confirm delete',
+  removeOk: 'Skill {name} deleted',
+  removeFailed: 'Delete failed: ',
+  moveUp: 'Move up',
+  moveDown: 'Move down',
+  orderOk: 'Order saved',
+  orderFailed: 'Save order failed: ',
   opFailed: 'Operation failed: ',
   toggleFailed: 'Toggle failed: ',
   addFailed: 'Create failed: ',

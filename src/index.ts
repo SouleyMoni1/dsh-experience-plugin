@@ -48,6 +48,7 @@ export {
 } from './features/my-rules/host.js'
 export {
   MCP_MANAGER_RPC_CHANNEL, MCP_MANAGER_LIST, MCP_MANAGER_ADD, MCP_MANAGER_IMPORT, MCP_MANAGER_TOGGLE, MCP_MANAGER_PATCH,
+  MCP_MANAGER_UPDATE, MCP_MANAGER_REMOVE, MCP_MANAGER_ORDER,
   applyMcpManager, dispatchMcpManagerRpc, validateServerInput, parseServerJson, isValidServerName,
   collectInstalledMcpServers, mcpServerOfToolName,
 } from './features/mcp-manager/host.js'
@@ -59,6 +60,7 @@ export type { ManagedMcpServer, McpManagerSettings } from './features/mcp-manage
 export type { InstalledMcpServer, McpManagerView } from './features/mcp-manager/host.js'
 export {
   SKILL_MANAGER_RPC_CHANNEL, SKILL_MANAGER_LIST, SKILL_MANAGER_TOGGLE, SKILL_MANAGER_ADD, SKILL_MANAGER_IMPORT,
+  SKILL_MANAGER_UPDATE, SKILL_MANAGER_REMOVE, SKILL_MANAGER_ORDER,
   applySkillManager, dispatchSkillManagerRpc, isValidSkillName, skillsRoot,
 } from './features/skill-manager/host.js'
 export { CONFIG_SECTIONS, EXPERIENCE_NS } from './features/config-sections.js'

@@ -86,5 +86,10 @@ DIV  options   1680×843  (x=240,y=54)
 
 - 源码：`src/features/settings-page/client/index.ts`、`src/client/design/styles.ts`
 - 影响面：仅「设置页全屏化」的几何改造；不碰官方 slot 注册、不碰配置读写。
-- 遗留（**待确认**）：`package.json` 的 peerDependencies 只写到 `^0.2.1-alpha.1`，没覆盖 0.2.2 线；全新 `npm install` 会因 peer 冲突失败（本次验证时实测，只能 `--legacy-peer-deps` 绕过）。插件本身在 0.2.2 上运行正常，但发版前建议把 peer 范围补到 0.2.2。
-- 遗留（待用户确认）：版本号仍是 0.7.12，本次修复未提交、未发版。
+- `package.json` 的 peerDependencies 原先只写到 `^0.2.1-alpha.1`，没覆盖 0.2.2 线（验证时实测全新 `npm install` 会 peer 冲突，只能 `--legacy-peer-deps` 绕过）；0.7.13 已补 `^0.2.2-rc.1`。
+
+## 发布记录
+
+- 0.7.13 已提交并推送：`72df7ea`（origin/main 已同步）
+- 已发布 npm：`dsh-experience-plugin@0.7.13`（latest），tarball 内 `lib/client.js` hash `7E221F7AB8AA` 与仓库构建一致
+- 已部署 `desktop` / `web` 两个 profile（同 hash `7E221F7AB8AA`，package.json 版本同为 0.7.13）；desktop 需重启 DSH 桌面端加载新 client 半区

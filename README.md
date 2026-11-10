@@ -1,6 +1,6 @@
 # dsh-experience-plugin
 
-DSH（DeepSeek Harness）功能插件，按功能模块组织：
+DSH（DeepSeek Harness）日用功能插件：CLI 请求模拟、MCP / Skills 管理、全局指令、设置页优化等，统一收在设置页「日用优化」分区。按模块组织：
 
 | 模块 | 功能 | 配置入口 |
 |------|------|----------|

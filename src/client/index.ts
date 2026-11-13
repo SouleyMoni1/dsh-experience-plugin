@@ -9,7 +9,6 @@
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // 让官方包的 declare module 合并进 SlotMap：settings.section 槽位契约。
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { applyOpenFolder } from '../features/open-folder/client/index.js'
 import { applySettingsPage } from '../features/settings-page/client/index.js'
 import { applyDailyOptimization } from '../features/daily-optimization/client/index.js'
 import { applyMyRulesClient } from '../features/my-rules/client/index.js'
@@ -22,8 +21,7 @@ import { ensureDesignStyles } from './design/index.js'
  * slots：注册 UI slot（设置页分区）；locale：双语文案；connection：插件自有
  * RPC 通道；remote：转发事件订阅；remote.settings：settings 读写命名空间
  * （每个远程命名空间都是独立注册的 cordis 服务 `remote.<ns>`，官方
- * dsh-client-ui-settings 的 inject 也是 `['remote','remote.settings']`）；
- * workspaces：侧边栏「打开文件夹」入口。
+ * dsh-client-ui-settings 的 inject 也是 `['remote','remote.settings']`）。
  *
  * 注意**不要**注入 `settingsScope`：它是 0.1.5 稳定线的服务，0.1.7-alpha 起已被
  * 内核移除，注入它会让整个 client 插件停在
@@ -31,7 +29,7 @@ import { ensureDesignStyles } from './design/index.js'
  * `web boot: 1 entry did not activate`。settings 访问统一走 `remote.settings`
  * （两条线同名同形，见 client/settings-access.ts）。
  */
-export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'remote.settings', 'workspaces']
+export const inject: string[] = ['slots', 'locale', 'connection', 'remote', 'remote.settings']
 
 /** 插件名（client 运行时诊断用）。 */
 export const name = 'dsh-experience-plugin-client'
@@ -52,7 +50,6 @@ export function apply(ctx: ClientContext): void {
   applyMyRulesClient(ctx)
 
   // 各功能模块按「模块开关」独立启停（默认全部开启，与旧行为一致）。
-  if (isModuleEnabled('open-folder')) applyOpenFolder(ctx, ctx.workspaces)
   // 官方设置弹窗 → 全屏设置页：几何覆盖，不改官方槽架构。
   if (isModuleEnabled('settings-page')) applySettingsPage(ctx)
 

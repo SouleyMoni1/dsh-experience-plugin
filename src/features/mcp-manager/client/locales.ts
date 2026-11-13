@@ -20,6 +20,11 @@ export type McpManagerLocaleKey =
   | 'edit' | 'save' | 'saving' | 'editOk' | 'editFailed' | 'renameHint'
   | 'moveUp' | 'moveDown' | 'orderOk' | 'orderFailed'
   | 'delete' | 'deleteConfirm' | 'deleteOk' | 'deleteFailed'
+  | 'restart' | 'restarting' | 'restartOk' | 'restartFailed'
+  | 'probe' | 'probing' | 'probeOk' | 'probeFailed' | 'probeNoTools'
+  | 'stateConnecting' | 'stateReconnecting' | 'stateFailed' | 'stateWaitingCredentials' | 'stateClosed'
+  | 'reasonLoad' | 'reasonCleanup' | 'reasonGaveUp' | 'reasonReconnectDisabled' | 'reasonUnclosedGeneration'
+  | 'runtimeUnavailable' | 'runtimeHint'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -98,6 +103,27 @@ export const zh: Record<McpManagerLocaleKey, string> = {
   deleteConfirm: '确认删除',
   deleteOk: '已删除服务器 {name}',
   deleteFailed: '删除失败: ',
+  restart: '重启',
+  restarting: '重启中…',
+  restartOk: '服务器 {name} 已重启，正在重连…',
+  restartFailed: '重启失败: ',
+  probe: '测试',
+  probing: '测试中…',
+  probeOk: '测试通过：{tools} 个工具 / {ms}ms',
+  probeNoTools: '测试通过：服务器未声明工具 / {ms}ms',
+  probeFailed: '测试失败（{stage}）: {message}',
+  stateConnecting: '连接中',
+  stateReconnecting: '重连中 {attempt}/{maxAttempts}',
+  stateFailed: '起不来',
+  stateWaitingCredentials: '待凭证',
+  stateClosed: '已断开',
+  reasonLoad: '装配失败',
+  reasonCleanup: '清理失败',
+  reasonGaveUp: '重试耗尽',
+  reasonReconnectDisabled: '断线且未开启重连',
+  reasonUnclosedGeneration: '上一代连接未释放',
+  runtimeUnavailable: '当前 DSH 版本没有官方 mcp-manager（需 0.2.2+），无法重启/测试',
+  runtimeHint: '徽标是官方 mcp-manager 的实时连接状态；⚡ 只做一次独立探测（不碰线上实例），⟳ 断开重连。',
 }
 
 /** 英文文案。 */
@@ -170,4 +196,25 @@ export const en: Record<McpManagerLocaleKey, string> = {
   deleteConfirm: 'Confirm delete',
   deleteOk: 'Server {name} deleted',
   deleteFailed: 'Delete failed: ',
+  restart: 'Restart',
+  restarting: 'Restarting…',
+  restartOk: 'Server {name} restarted, reconnecting…',
+  restartFailed: 'Restart failed: ',
+  probe: 'Probe',
+  probing: 'Probing…',
+  probeOk: 'Probe succeeded: {tools} tools / {ms}ms',
+  probeNoTools: 'Probe succeeded: no tools advertised / {ms}ms',
+  probeFailed: 'Probe failed ({stage}): {message}',
+  stateConnecting: 'connecting',
+  stateReconnecting: 'reconnecting {attempt}/{maxAttempts}',
+  stateFailed: 'failed',
+  stateWaitingCredentials: 'waiting for credentials',
+  stateClosed: 'closed',
+  reasonLoad: 'activation failed',
+  reasonCleanup: 'cleanup failed',
+  reasonGaveUp: 'retries exhausted',
+  reasonReconnectDisabled: 'disconnected, reconnect off',
+  reasonUnclosedGeneration: 'previous connection not released',
+  runtimeUnavailable: 'This DSH release has no official mcp-manager (0.2.2+ required); restart/probe unavailable',
+  runtimeHint: 'Badges show the official mcp-manager status; ⚡ probes independently without touching the live instance, ⟳ reconnects.',
 }

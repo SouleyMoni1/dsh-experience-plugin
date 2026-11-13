@@ -3,7 +3,6 @@
  *
  * 功能分配（每个功能一个模块，新增功能在此装配）：
  *   - features/cli-mimic/CLI 请求模拟（本地代理 + fetch 拦截 + 配置工具）
- *   - features/open-folder/侧边栏项目行「在文件夹中显示」
  *   - features/my-rules/全局指令（读写 $DSH_HOME/AGENTS.md 的 RPC 通道）
  *   - features/mcp-manager/MCP 服务器托管注册表
  *   - features/skill-manager/Skill 开关与导入
@@ -23,14 +22,13 @@
  * - id: dsh-experience-plugin
  *   name: dsh-experience-plugin
  *   config:
- *     openFolder:
+ *     cliMimic:
  *       enabled: true
  * ```
  */
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { applyCliMimic, cliMimicConfigSchema } from './features/cli-mimic/host.js'
-import { applyOpenFolderHost } from './features/open-folder/host.js'
 import { applyMyRules } from './features/my-rules/host.js'
 import { applyMcpManager } from './features/mcp-manager/host.js'
 import { McpManagerSettingsSchema } from './features/mcp-manager/settings.js'
@@ -41,23 +39,23 @@ import { ensureNamespace } from './features/settings-compat.js'
 
 // 工具导出（测试 / 高级用法）：
 export { CLI_MIMIC_NS, CliMimicConfigSchema, cliMimicConfigSchema, cliMimicSection, type Config as CliMimicConfig } from './features/cli-mimic/host.js'
-export { applyOpenFolderHost, type OpenFolderConfig } from './features/open-folder/host.js'
 export {
   MY_RULES_RPC_CHANNEL, MY_RULES_RPC_READ, MY_RULES_RPC_WRITE,
   dispatchMyRulesRpc, resolveDshHome, globalInstructionsPath,
 } from './features/my-rules/host.js'
 export {
   MCP_MANAGER_RPC_CHANNEL, MCP_MANAGER_LIST, MCP_MANAGER_ADD, MCP_MANAGER_IMPORT, MCP_MANAGER_TOGGLE, MCP_MANAGER_PATCH,
-  MCP_MANAGER_UPDATE, MCP_MANAGER_REMOVE, MCP_MANAGER_ORDER,
+  MCP_MANAGER_UPDATE, MCP_MANAGER_REMOVE, MCP_MANAGER_ORDER, MCP_MANAGER_RESTART, MCP_MANAGER_PROBE,
   applyMcpManager, dispatchMcpManagerRpc, validateServerInput, parseServerJson, isValidServerName,
   collectInstalledMcpServers, mcpServerOfToolName,
+  mcpManagerService, collectRuntimeStatuses, mergeRuntimeServers, normalizeRuntimeStatus, normalizeProbe,
 } from './features/mcp-manager/host.js'
+export type { InstalledMcpServer, McpManagerView, McpRuntimeStatus, McpProbeView } from './features/mcp-manager/host.js'
 export {
   applyPatchRemoval, applyPatchToggle, patchFileDefinesEntry, patchIdOf, resolveProfilePatchFile,
 } from './features/mcp-manager/patch-file.js'
 export { MCP_MANAGER_NS, McpManagerSettingsSchema } from './features/mcp-manager/settings.js'
 export type { ManagedMcpServer, McpManagerSettings } from './features/mcp-manager/settings.js'
-export type { InstalledMcpServer, McpManagerView } from './features/mcp-manager/host.js'
 export {
   SKILL_MANAGER_RPC_CHANNEL, SKILL_MANAGER_LIST, SKILL_MANAGER_TOGGLE, SKILL_MANAGER_ADD, SKILL_MANAGER_IMPORT,
   SKILL_MANAGER_UPDATE, SKILL_MANAGER_REMOVE, SKILL_MANAGER_ORDER,
@@ -94,10 +92,6 @@ export function configSchema(volatile: boolean): z<Config> {
   const sections = {
     // hello 示例已删除；保留空段以免旧 patch 里的 hello 配置触发 schema 报错。
     hello: z.object({}).loose().default({}),
-    // 侧边栏「在文件夹中显示」开关（行配置）。
-    openFolder: z.object({
-      enabled: z.boolean(),
-    }).default({ enabled: true }),
 
     // ── 以下为设置页可编辑的数据段 ──────────────────────────────────────
     // CLI 请求模拟（原 `cli-mimic` 独立命名空间，现并入本条目子段）。
@@ -145,7 +139,6 @@ export function apply(ctx: Context, config: Config = {} as Config): void {
   }
 
   applyCliMimic(ctx)
-  applyOpenFolderHost(ctx, config.openFolder ?? { enabled: true })
   applyMyRules(ctx)
   applyMcpManager(ctx)
   applySkillManager(ctx)

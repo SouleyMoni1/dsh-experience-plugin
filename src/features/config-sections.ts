@@ -21,8 +21,6 @@ export type ConfigSectionKey = (typeof CONFIG_SECTIONS)[number]
 export interface ConfigSections {
   /** 兼容旧 patch 的空段（hello 示例已删除，保留以免未知字段触发 schema 报错）。 */
   hello?: Record<string, unknown>
-  /** 侧边栏「在文件夹中显示」开关（行配置）。 */
-  openFolder?: { enabled: boolean }
   /** CLI 请求模拟段（volatile）。 */
   cliMimic?: unknown
   /** MCP 服务器注册表段（volatile）。 */

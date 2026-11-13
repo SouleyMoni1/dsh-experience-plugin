@@ -14,6 +14,11 @@
  * RPC 通道 /dsh-mcp-manager（connection.rpc，loopback）：
  *   mcp/manager/list · mcp/manager/add · mcp/manager/import · mcp/manager/toggle
  *   mcp/manager/patch · mcp/manager/update · mcp/manager/remove · mcp/manager/order
+ *   mcp/manager/restart · mcp/manager/probe（转发官方 dsh-mcp-manager，0.2.2 起）
+ *
+ * 官方运行时状态：DSH 0.2.2 起内核自带 `mcp-manager` 行（`@deepseek-ai/dsh-mcp-manager`），
+ * 它按 serverName 暴露连接状态、`restart()` 与 `probe()`。本模块**不重复实现**这些，
+ * 只用 `ctx.get('mcpManager')` 取来补进列表与操作（老版本取不到就全程降级，行为同前）。
  */
 import type { Context, Fiber } from '@deepseek-ai/cordis'
 import { apply as applyMcpClient, type Config as McpClientConfig } from '@deepseek-ai/dsh-mcp-client'
@@ -41,6 +46,10 @@ export const MCP_MANAGER_UPDATE = 'mcp/manager/update'
 export const MCP_MANAGER_REMOVE = 'mcp/manager/remove'
 /** 重排注册表（数组顺序即 reconcile 装配顺序与列表展示顺序）。 */
 export const MCP_MANAGER_ORDER = 'mcp/manager/order'
+/** 重启一个由官方 mcp-manager 托管的服务器（转发 `mcpManager.restart`）。 */
+export const MCP_MANAGER_RESTART = 'mcp/manager/restart'
+/** 探测一个由官方 mcp-manager 托管的服务器（转发 `mcpManager.probe`，不碰线上实例）。 */
+export const MCP_MANAGER_PROBE = 'mcp/manager/probe'
 
 /**
  * dsh 原生 MCP 服务器的模块名 —— loader 条目按此识别。
@@ -110,6 +119,125 @@ export interface McpManagerView {
   live: string[]
   /** loader 装配的外部 MCP 服务器——「已安装」的真相。 */
   installed: InstalledMcpServer[]
+  /** 官方 mcp-manager 的实时状态（serverName → 状态）；DSH < 0.2.2 时为空对象。 */
+  runtime: Record<string, McpRuntimeStatus>
+}
+
+/**
+ * 官方 mcp-manager 的运行时状态（归一化为可序列化结构）。
+ *
+ * 取值来自 `McpConnectionStatus` / 管理器自有的 disabled、failed(load|cleanup)，
+ * 但**刻意压平**：客户端只关心「处于什么状态、错在哪、重试到第几次」，
+ * 不需要 McpCloseResult 这类嵌套诊断结构。
+ */
+export interface McpRuntimeStatus {
+  /** connected / connecting / reconnecting / failed / disabled / waiting-credentials / closed。 */
+  state: string
+  /** 该条目是否仍存在于配置或插件注册里（false = 只剩清理残留）。 */
+  configured: boolean
+  /** 已连接时的工具数。 */
+  toolCount?: number
+  /** 当前断线已连续失败的次数。 */
+  attempt?: number
+  /** 单次断线允许的尝试上限。 */
+  maxAttempts?: number
+  /** 下次重试的绝对时间（epoch ms）。 */
+  nextRetryAtMs?: number
+  /** 最近一次失败诊断文本。 */
+  lastError?: string
+  /** failed 的细分原因：gave-up / reconnect-disabled / unclosed-generation / load / cleanup。 */
+  reason?: string
+}
+
+/** 官方 mcp-manager 服务的最小读取面（0.2.2 起存在）。 */
+interface McpManagerServiceLike {
+  list(): Array<{ name: string; configured: boolean; status: unknown }>
+  restart(name: string): Promise<void>
+  probe(name: string, options?: { signal?: AbortSignal }): Promise<unknown>
+}
+
+/**
+ * 取官方 mcp-manager 服务；老版本 DSH（< 0.2.2）或该行被 disabled 时返回 undefined。
+ * @param ctx - host 插件上下文（不 inject，仅按需 get，缺服务不影响插件装配）。
+ * @returns 服务最小面；不可用时 undefined。
+ */
+export function mcpManagerService(ctx: Context): McpManagerServiceLike | undefined {
+  const service = ctx.get('mcpManager') as Partial<McpManagerServiceLike> | undefined
+  if (service === undefined || typeof service.list !== 'function') return undefined
+  return service as McpManagerServiceLike
+}
+
+/** 把官方状态对象压平成 {@link McpRuntimeStatus}（容忍缺字段与未知 state）。 */
+export function normalizeRuntimeStatus(raw: unknown): McpRuntimeStatus {
+  const source = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
+  const status: McpRuntimeStatus = {
+    state: str(source.state) ?? 'unknown',
+    configured: false,
+  }
+  for (const key of ['toolCount', 'attempt', 'maxAttempts', 'nextRetryAtMs'] as const) {
+    const value = num(source[key])
+    if (value !== undefined) status[key] = value
+  }
+  for (const key of ['lastError', 'reason'] as const) {
+    const value = str(source[key])
+    if (value !== undefined) status[key] = value
+  }
+  // cleanup 失败把诊断藏在 result 里，只有 closeConfirmed=false 时才有意义。
+  const result = source.result
+  if (status.lastError === undefined && result !== null && typeof result === 'object') {
+    const cleanupError = str((result as Record<string, unknown>).cleanupError)
+    if (cleanupError !== undefined) status.lastError = cleanupError
+  }
+  return status
+}
+
+/**
+ * 读官方 mcp-manager 的全部服务器状态。
+ * @param ctx - host 插件上下文。
+ * @returns serverName → 状态；服务不可用时为空对象。
+ */
+export function collectRuntimeStatuses(ctx: Context): Record<string, McpRuntimeStatus> {
+  const service = mcpManagerService(ctx)
+  if (service === undefined) return {}
+  const out: Record<string, McpRuntimeStatus> = {}
+  for (const item of service.list()) {
+    if (typeof item?.name !== 'string' || item.name === '') continue
+    out[item.name] = { ...normalizeRuntimeStatus(item.status), configured: item.configured === true }
+  }
+  return out
+}
+
+/**
+ * 把官方 mcp-manager 里**只有它知道**的服务器补进「已安装」清单。
+ *
+ * 必要性：loader 条目 + 工具面两遍扫描都看不见「配置了但起不来」的服务器
+ * （没有条目、没有工具），以前它们在 UI 里直接消失；官方 manager 的 list()
+ * 是这类服务器的唯一真相。
+ * @param installed - loader/工具面扫出来的清单。
+ * @param runtime - 官方 manager 的状态表。
+ * @returns 补齐后的清单（按 name 排序）。
+ */
+export function mergeRuntimeServers(
+  installed: InstalledMcpServer[],
+  runtime: Record<string, McpRuntimeStatus>,
+): InstalledMcpServer[] {
+  const seen = new Set(installed.map((server) => server.name))
+  const merged = [...installed]
+  for (const [name, status] of Object.entries(runtime)) {
+    if (seen.has(name) || !status.configured) continue
+    merged.push({
+      name,
+      entryId: '',
+      transport: '',
+      summary: '',
+      enabled: status.state !== 'disabled',
+      tools: [],
+      editable: false,
+    })
+  }
+  return merged.sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** loader 条目在读取侧的最小结构化面（不引入 cordis-plugin-loader 的类型依赖）。 */
@@ -177,6 +305,49 @@ function toStringDict(value: unknown): Record<string, string> {
   const out: Record<string, string> = {}
   for (const [key, item] of Object.entries(value)) if (typeof item === 'string') out[key] = item
   return out
+}
+
+/**
+ * 探测结果（`McpProbeResult` 的扁平化投影）。
+ * 成功时给工具名清单与握手耗时；失败时给失败阶段与诊断文本。
+ */
+export interface McpProbeView {
+  name: string
+  ok: boolean
+  /** 失败发生在哪一阶段：connect（握手）/ list（列工具）。 */
+  stage?: string
+  /** 失败诊断。 */
+  message?: string
+  toolNames?: string[]
+  /** 工具名清单是否被 maxToolNames 截断。 */
+  truncated?: boolean
+  durationMs?: number
+  serverInfo?: { name: string; version: string }
+  closeConfirmed?: boolean
+  cleanupError?: string
+}
+
+/** 把官方探测结果压平（容忍缺字段）。 */
+export function normalizeProbe(name: string, raw: unknown): McpProbeView {
+  const source = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined)
+  const view: McpProbeView = { name, ok: source.ok === true }
+  for (const key of ['stage', 'message', 'cleanupError'] as const) {
+    const value = str(source[key])
+    if (value !== undefined) view[key] = value
+  }
+  if (typeof source.durationMs === 'number' && Number.isFinite(source.durationMs)) view.durationMs = source.durationMs
+  if (typeof source.truncated === 'boolean') view.truncated = source.truncated
+  if (typeof source.closeConfirmed === 'boolean') view.closeConfirmed = source.closeConfirmed
+  if (Array.isArray(source.toolNames)) {
+    view.toolNames = source.toolNames.filter((x): x is string => typeof x === 'string')
+  }
+  const info = source.serverInfo
+  if (info !== null && typeof info === 'object' && typeof (info as Record<string, unknown>).name === 'string') {
+    const record = info as Record<string, unknown>
+    view.serverInfo = { name: record.name as string, version: typeof record.version === 'string' ? record.version : '' }
+  }
+  return view
 }
 
 /** 构造 RPC 错误。 */
@@ -334,6 +505,8 @@ export async function dispatchMcpManagerRpc(
     installed(): InstalledMcpServer[]
     /** profile patch 层的读写面（已安装条目的关 / 卸载）。 */
     patch(): PatchLayer
+    /** 官方 mcp-manager 服务（0.2.2 起；缺省表示老版本，restart/probe 不可用）。 */
+    runtime?(): McpManagerServiceLike | undefined
   },
 ): Promise<RpcResult<unknown>> {
   try {
@@ -367,12 +540,20 @@ async function dispatchMcpManagerRpcInner(
     installed(): InstalledMcpServer[]
     /** profile patch 层的读写面（已安装条目的关 / 卸载）。 */
     patch(): PatchLayer
+    /** 官方 mcp-manager 服务（0.2.2 起；缺省表示老版本，restart/probe 不可用）。 */
+    runtime?(): McpManagerServiceLike | undefined
   },
 ): Promise<RpcResult<unknown>> {
+  const service = deps.runtime?.()
   if (endpoint === MCP_MANAGER_LIST) {
+    const runtime: Record<string, McpRuntimeStatus> = {}
+    for (const item of service?.list() ?? []) {
+      if (typeof item?.name !== 'string' || item.name === '') continue
+      runtime[item.name] = { ...normalizeRuntimeStatus(item.status), configured: item.configured === true }
+    }
     return {
       ok: true,
-      value: { servers: deps.servers(), live: deps.live(), installed: deps.installed() } satisfies McpManagerView,
+      value: { servers: deps.servers(), live: deps.live(), installed: deps.installed(), runtime } satisfies McpManagerView,
     }
   }
   if (endpoint === MCP_MANAGER_ADD) {
@@ -523,6 +704,22 @@ async function dispatchMcpManagerRpcInner(
     await deps.replace(next)
     return { ok: true, value: { names: next.map((s) => s.name) } }
   }
+  if (endpoint === MCP_MANAGER_RESTART || endpoint === MCP_MANAGER_PROBE) {
+    const label = endpoint === MCP_MANAGER_RESTART ? 'restart' : 'probe'
+    const body = payload as { name?: unknown } | undefined
+    const name = typeof body?.name === 'string' ? body.name.trim() : ''
+    if (!isValidServerName(name)) return rpcError(`mcp ${label} requires a valid server name`)
+    if (service === undefined) return rpcError('official mcp-manager unavailable: requires DSH 0.2.2 or later')
+    // 先确认归官方管：patch 层的 mcp-client 条目官方不认识，报错比抛底层异常清楚。
+    if (!service.list().some((item) => item.name === name)) {
+      return rpcError(`server ${name} is not managed by the DSH MCP manager; toggle its profile entry instead`)
+    }
+    if (endpoint === MCP_MANAGER_RESTART) {
+      await service.restart(name)
+      return { ok: true, value: { name } }
+    }
+    return { ok: true, value: normalizeProbe(name, await service.probe(name)) }
+  }
   return rpcError('unknown mcp-manager endpoint: ' + endpoint)
 }
 
@@ -672,7 +869,7 @@ export function applyMcpManager(ctx: Context): void {
     },
   }
 
-  // RPC 通道：绑定注册表读写 + 实时名单 + loader 已安装清单 + patch 层编辑。
+  // RPC 通道：绑定注册表读写 + 实时名单 + loader 已安装清单 + patch 层编辑 + 官方运行时状态。
   const dispose = provideRpcChannel(MCP_MANAGER_RPC_CHANNEL, (endpoint, payload) => {
     return dispatchMcpManagerRpc(endpoint, payload, {
       servers,
@@ -680,8 +877,12 @@ export function applyMcpManager(ctx: Context): void {
         await writeSection(ctx, 'mcpManager', { servers: next })
       },
       live,
-      installed: () => collectInstalledMcpServers(ctx, new Set(servers().map((s) => s.name)), new Set(editableIds())),
+      installed: () => mergeRuntimeServers(
+        collectInstalledMcpServers(ctx, new Set(servers().map((s) => s.name)), new Set(editableIds())),
+        collectRuntimeStatuses(ctx),
+      ),
       patch: () => patch,
+      runtime: () => mcpManagerService(ctx),
     })
   })
 

@@ -5,14 +5,24 @@ DSH（DeepSeek Harness）日用功能插件：CLI 请求模拟、MCP / Skills �
 | 模块 | 功能 | 配置入口 |
 |------|------|----------|
 | CLI 请求模拟 | 把 DSH 模型请求伪装成 Codex / Claude Code / Grok CLI | 设置页「日用优化」分区 |
-| 打开文件夹 | 工作区行菜单打开项目目录 | 插件行 `openFolder` 段 |
 | 设置页全屏化 | 设置弹窗改全屏页 + 背景不透明开关 | 设置页「日用优化」分区 |
 | 全局指令 | 设置页编辑此主机全局指令（~/.dsh/AGENTS.md） | 设置页「日用优化」分区 |
-| MCP 管理 | 列出已安装的 MCP server（含 loader 装配的外部条目与实时工具面）+ 插件托管条目的增 / 删 / 改（含改名）/ 搜索 / 排序 / 导入 / 启停 + 已安装条目的关 / 卸载 | 设置页「日用优化」分区「MCP 管理」页签 |
+| MCP 管理 | 列出已安装的 MCP server（含 loader 装配的外部条目、实时工具面、官方 mcp-manager 的连接状态/失败原因）+ 插件托管条目的增 / 删 / 改（含改名）/ 搜索 / 排序 / 导入 / 启停 + 已安装条目的关 / 卸载 / 重启 / 探测 | 设置页「日用优化」分区「MCP 管理」页签 |
 | Skills 管理 | Skill 的增 / 删 / 改（改名、改描述）/ 搜索 / 排序 / 导入 / 启停 | 设置页「日用优化」分区「Skills 管理」页签 |
 | 模块开关 | 各功能模块独立启停 | 设置页「日用优化」分区「模块开关」页签 |
 
 所有配置 UI 统一收拢在设置页「日用优化」分区，含「插件设置」「模块开关」「MCP 管理」「Skills 管理」四个页签。
+
+> **0.7.14 起移除「打开文件夹」**：DSH 0.2.2 官方已内置同名能力——工作区行右键/⋯ 菜单里的「在…中打开」
+> （`@deepseek-ai/dsh-client-ui-open-in-app` + `dsh-host-open-in-app`，可选编辑器 / Git GUI / 终端 / 文件管理器）。
+> 插件不再做 DOM 菜单注入。若 profile 的 `cordis.patch.yml` 里还留着 `openFolder:` 配置，请一并删除
+> （schema 已无该字段，未知键会被 loader 拒绝）。
+
+> **0.7.14 起 MCP 管理接官方 `mcp-manager`**：DSH 0.2.2 内核自带 `mcp-manager`（服务名 `mcpManager`），
+> 插件不再自己猜「有没有工具」来判连接——已安装行直接显示官方状态
+> （connected/connecting/reconnecting/failed/disabled），失败时连 `lastError` 一起给出，
+> 并转发它的 `restart()` / `probe()` 做「重启」「测试」。老版本（< 0.2.2）取不到该服务，
+> 自动退回原判断，行为与之前一致。
 
 ## 实现约束
 
@@ -81,7 +91,6 @@ host 与浏览器半区共用**一条**精确 Fetch 路由 `/api/dsh-experience-
 按功能模块组织在 `src/features/` 下：
 
 - `cli-mimic/`：CLI 请求模拟
-- `open-folder/`：打开文件夹
 - `settings-page/`：设置页全屏化
 - `my-rules/`：全局指令（My Rules，读写 ~/.dsh/AGENTS.md）
 - `mcp-manager/`：MCP server 管理
@@ -128,8 +137,25 @@ node scripts/deploy-to-profile.mjs --dry    # 只看差异
   `partialReload` 明确跳过所有 `/node_modules/` 路径，因此 host 模块无法热载。
 
 > 版本偏斜提醒：client 半区能独立热载而 host 不能，所以 client 必须容忍宿主响应里
-> 缺失的新字段（例如 `mcp/manager/list` 的 `installed`）。漏了这层归一化会以
+> 缺失的新字段（例如 `mcp/manager/list` 的 `installed` / `runtime`）。漏了这层归一化会以
 > `undefined.length` 炸掉整个设置页。
+
+## 接官方 mcp-manager（0.2.2+）
+
+内核 0.2.2 起的 `@deepseek-ai/dsh-mcp-manager`（挂载 id `mcp`，服务名 `mcpManager`）按
+serverName 维护连接状态并提供 `restart()` / `probe()`。插件**不重复实现**这些，只用
+`ctx.get('mcpManager')` 取来用（不写进 `inject`，缺服务就整段降级，0.1.x / 0.2.0 行为不变）：
+
+| 插件侧 | 官方来源 | 说明 |
+| --- | --- | --- |
+| 已安装行徽标 | `list()[].status` | connected → `n 个工具`；connecting / reconnecting（第 n 次）/ failed（原因）/ disabled / waiting-credentials |
+| 失败行描述 | `status.lastError` | 起不来时优先显示原因，原始命令退到后面 |
+| 清单补全 | `list()[].configured` | 「配置了但起不来」（既无 loader 条目又无工具）的服务器以前整条消失，现在补进已安装区 |
+| ⟳ 重启 | `restart(name)` | 端点 `mcp/manager/restart` |
+| ⚡ 测试 | `probe(name)` | 端点 `mcp/manager/probe`；只做一次独立握手，不碰线上实例，返回失败阶段 / 耗时 / 工具名 |
+
+patch 层定义的 mcp-client 条目不由官方管，`restart` / `probe` 会返回明确错误并提示改用条目开关，
+不静默失败。
 
 ## 关 / 卸载已安装的 MCP server（写回 profile 组合）
 

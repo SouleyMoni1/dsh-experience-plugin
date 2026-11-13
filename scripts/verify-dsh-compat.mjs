@@ -207,9 +207,6 @@ if (profileLine === 'config') {
   for (const key of ['cliMimic', 'mcpManager']) {
     check(`alpha 线：${key} 已标 volatile`, isVolatile(json, key))
   }
-  for (const key of ['openFolder']) {
-    check(`alpha 线：${key} 未标 volatile（普通配置）`, isVolatile(json, key) === false)
-  }
   // 命名空间必须等于 loader 条目 id，而条目 id 来自 bundle patch。
   const bundleRows = parse(readFileSync(join(pluginDir, 'cordis.patch.yml'), 'utf8'), { customTags: [JS_TAG] })
   const inserted = bundleRows?.find((r) => r?.insert !== undefined)?.insert ?? []

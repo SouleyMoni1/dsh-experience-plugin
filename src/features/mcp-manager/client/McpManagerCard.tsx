@@ -6,7 +6,10 @@
  *   - 改：托管行行内编辑（复用新增表单布局与解析函数），保存后 host 写回注册表并热对账；
  *   - 删：托管行两步确认删除（4 秒或点别处自动复位），host 侧删除前二次校验存在；
  *   - 排序：托管行 ↑ / ↓ 与相邻可见条目交换数组位置——数组顺序即 reconcile 装配与展示顺序；
- *   - 开关 / 新增 / 导入保持原行为；已安装行仍只读（开关与卸载走 profile patch 层）。
+ *   - 开关 / 新增 / 导入保持原行为；已安装行仍只读（开关与卸载走 profile patch 层）；
+ *   - 状态：已安装行的徽标取自官方 mcp-manager 的实时连接状态（DSH 0.2.2+），
+ *     起不来的服务器连原因一起显示；老版本没有该服务时退回「有没有工具」的旧判断；
+ *   - 诊断：官方托管的服务器可「重启」「测试」（转发 mcpManager.restart / probe）。
  *
  * 数据与操作走 host 端 RPC 通道 /dsh-mcp-manager（loopback）。
  *
@@ -44,6 +47,8 @@ const PATCH = 'mcp/manager/patch'
 const UPDATE = 'mcp/manager/update'
 const REMOVE = 'mcp/manager/remove'
 const ORDER = 'mcp/manager/order'
+const RESTART = 'mcp/manager/restart'
+const PROBE = 'mcp/manager/probe'
 
 /** MCP 服务器条目（与 host 端 ManagedMcpServer 对应）。*/
 interface ManagedMcpServer {
@@ -75,6 +80,20 @@ interface McpManagerView {
   live: string[]
   /** 宿主旧版本可能不返回此字段（client 半区可独立热载）。 */
   installed?: InstalledMcpServer[]
+  /** 官方 mcp-manager 的实时状态；宿主没有该服务（DSH < 0.2.2）时缺省。 */
+  runtime?: Record<string, McpRuntimeStatus>
+}
+
+/** 官方 mcp-manager 的运行时状态（与 host 端 McpRuntimeStatus 对应）。*/
+interface McpRuntimeStatus {
+  state: string
+  configured: boolean
+  toolCount?: number
+  attempt?: number
+  maxAttempts?: number
+  nextRetryAtMs?: number
+  lastError?: string
+  reason?: string
 }
 
 /** 状态消息。*/
@@ -118,6 +137,15 @@ const fieldInputStyle: CSSProperties = { flex: 1, minWidth: 120 }
 
 /** 下拉框：按内容宽度（dx-select 自带 width:100%，这里还原为 auto）。*/
 const fieldSelectStyle: CSSProperties = { flex: 'none', width: 'auto', minWidth: 140 }
+
+/** failed 状态的细分原因 → 文案键（官方 `McpConnectionStatus` / 管理器自有原因）。*/
+const FAILED_REASON_KEYS: Record<string, 'reasonLoad' | 'reasonCleanup' | 'reasonGaveUp' | 'reasonReconnectDisabled' | 'reasonUnclosedGeneration'> = {
+  load: 'reasonLoad',
+  cleanup: 'reasonCleanup',
+  'gave-up': 'reasonGaveUp',
+  'reconnect-disabled': 'reasonReconnectDisabled',
+  'unclosed-generation': 'reasonUnclosedGeneration',
+}
 
 /** 托管服务器的说明文本：stdio 看 command，http 看 url。*/
 const managedSummary = (server: ManagedMcpServer): string =>
@@ -189,8 +217,13 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
     try {
       const v = await call<McpManagerView>(LIST, {})
       // RPC 边界归一化：client 半区可独立热载而 host 不能，宿主还是旧代码时
-      // 响应里没有 installed，直接渲染会以 undefined.length 炸掉整个设置页。
-      setView({ servers: v.servers ?? [], live: v.live ?? [], installed: v.installed ?? [] })
+      // 响应里没有 installed / runtime，直接渲染会以 undefined.length 炸掉整个设置页。
+      setView({
+        servers: v.servers ?? [],
+        live: v.live ?? [],
+        installed: v.installed ?? [],
+        runtime: v.runtime ?? {},
+      })
       setPhase('ready')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
@@ -455,6 +488,101 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
   }
 
   /**
+   * 重启一个官方托管的服务器（转发 mcpManager.restart，断开重连）。
+   * @param server - 目标服务器。
+   */
+  const restartServer = async (server: InstalledMcpServer): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      await call<{ name: string }>(RESTART, { name: server.name })
+      setMsg({ kind: 'ok', text: t('restartOk', { name: server.name }) })
+      await load()
+    } catch (cause) {
+      setMsg({ kind: 'err', text: t('restartFailed') + (cause instanceof Error ? cause.message : String(cause)) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 探测一个官方托管的服务器（不碰线上实例，单独握手 + 列工具）。
+   * @param server - 目标服务器。
+   */
+  const probeServer = async (server: InstalledMcpServer): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const result = await call<{
+        ok: boolean
+        stage?: string
+        message?: string
+        toolNames?: string[]
+        durationMs?: number
+      }>(PROBE, { name: server.name })
+      const ms = Math.round(result.durationMs ?? 0)
+      if (result.ok) {
+        const count = result.toolNames?.length ?? 0
+        setMsg({ kind: 'ok', text: count === 0 ? t('probeNoTools', { ms }) : t('probeOk', { tools: count, ms }) })
+      } else {
+        setMsg({
+          kind: 'err',
+          text: t('probeFailed', { stage: result.stage ?? '-', message: result.message ?? '-' }),
+        })
+      }
+    } catch (cause) {
+      setMsg({ kind: 'err', text: t('probeFailed', { stage: '-', message: cause instanceof Error ? cause.message : String(cause) }) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * 已安装行的状态徽标。
+   *
+   * 有官方运行时状态就以它为准（能看到 connecting / reconnecting / failed 及原因）；
+   * 没有（DSH < 0.2.2 或该条目不由官方管）就退回「有没有注册工具」的旧判断。
+   * @param server - 已安装条目。
+   * @returns 徽标节点。
+   */
+  const statusBadge = (server: InstalledMcpServer): JSX.Element => {
+    const runtime = view?.runtime?.[server.name]
+    if (runtime === undefined) {
+      return server.tools.length > 0
+        ? <span className="dx-badge dx-badge--ok">{t('toolCount', { count: server.tools.length })}</span>
+        : <span className="dx-badge">{t('notConnected')}</span>
+    }
+    const toolCount = runtime.toolCount ?? server.tools.length
+    const hint = runtime.lastError === undefined ? undefined : { title: runtime.lastError }
+    if (runtime.state === 'connected') {
+      return <span className="dx-badge dx-badge--ok">{t('toolCount', { count: toolCount })}</span>
+    }
+    if (runtime.state === 'connecting') {
+      return <span className="dx-badge dx-badge--warn">{t('stateConnecting')}</span>
+    }
+    if (runtime.state === 'reconnecting') {
+      return (
+        <span className="dx-badge dx-badge--warn" {...hint}>
+          {t('stateReconnecting', { attempt: runtime.attempt ?? 0, maxAttempts: runtime.maxAttempts ?? 0 })}
+        </span>
+      )
+    }
+    if (runtime.state === 'waiting-credentials') {
+      return <span className="dx-badge dx-badge--warn" {...hint}>{t('stateWaitingCredentials')}</span>
+    }
+    if (runtime.state === 'failed') {
+      const reason = runtime.reason ?? ''
+      const label = t(FAILED_REASON_KEYS[reason] ?? 'stateFailed')
+      return <span className="dx-badge dx-badge--danger" {...hint}>{label}</span>
+    }
+    if (runtime.state === 'disabled') return <span className="dx-badge">{t('off')}</span>
+    if (runtime.state === 'closed') return <span className="dx-badge">{t('stateClosed')}</span>
+    return <span className="dx-badge">{runtime.state}</span>
+  }
+
+  /**
    * 从 profile patch 文件卸载一个 loader 条目（删除定义）。
    * @param server - 目标服务器。
    */
@@ -613,35 +741,51 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
    * 卸载走两步确认，因为它是破坏性操作——会真的删掉主人手写的条目定义。
    */
   const installedRow = (server: InstalledMcpServer): JSX.Element => {
-    const connected = server.tools.length > 0
     const editable = server.editable === true
+    const runtime = view?.runtime?.[server.name]
+    // 起不来时最有用的信息是原因：放到描述里（徽标 hover 也能看到原文）。
+    const description = runtime?.state === 'failed' && runtime.lastError !== undefined
+      ? runtime.lastError + (server.summary === '' ? '' : ' · ' + server.summary)
+      : (installedSummary(server) || t('none'))
     return (
       <ManagerRow
         key={server.name}
         title={server.name}
-        description={installedSummary(server) || t('none')}
+        description={description}
         hover={editable}
         badges={
           <>
             {server.transport === '' ? null : <span className="dx-badge">{server.transport}</span>}
-            <span className={connected ? 'dx-badge dx-badge--ok' : 'dx-badge'}>
-              {connected ? t('toolCount', { count: server.tools.length }) : t('notConnected')}
-            </span>
+            {statusBadge(server)}
             <span className="dx-badge">{editable ? t('composed') : t('external')}</span>
           </>
         }
-        actions={editable ? (
-          <RowDeleteButton
-            label={t('uninstall')}
-            confirmLabel={t('uninstallConfirm')}
-            cancelLabel={t('cancel')}
-            confirming={confirming === server.name}
-            disabled={busy || disabled}
-            onArm={() => setConfirming(server.name)}
-            onConfirm={() => void uninstall(server)}
-            onCancel={() => setConfirming('')}
-          />
-        ) : undefined}
+        actions={(() => {
+          // 只有官方管的条目才有重启/测试；两者都没有时不要留空的 actions 容器（会多出间距）。
+          if (runtime === undefined && !editable) return undefined
+          return (
+            <>
+              {runtime === undefined ? null : (
+                <>
+                  <RowIconButton label={t('probe')} glyph="⚡" disabled={busy || disabled} onClick={() => void probeServer(server)} />
+                  <RowIconButton label={t('restart')} glyph="⟳" disabled={busy || disabled} onClick={() => void restartServer(server)} />
+                </>
+              )}
+              {editable ? (
+                <RowDeleteButton
+                  label={t('uninstall')}
+                  confirmLabel={t('uninstallConfirm')}
+                  cancelLabel={t('cancel')}
+                  confirming={confirming === server.name}
+                  disabled={busy || disabled}
+                  onArm={() => setConfirming(server.name)}
+                  onConfirm={() => void uninstall(server)}
+                  onCancel={() => setConfirming('')}
+                />
+              ) : null}
+            </>
+          )
+        })()}
         trailing={editable ? (
           <RowSwitch
             label={server.name + ' ' + (server.enabled ? t('patchToggleOff') : t('patchToggleOn'))}
@@ -675,7 +819,10 @@ export function McpManagerCard({ rpc, t, disabled = false, bare = false }: McpMa
   /** 分组说明：有可编辑条目时才追加「卸载会改 profile 组合文件」的提示。 */
   const installedHint = (): string => {
     const hint = t('installedHint')
-    return installed.some((s) => s.editable === true) ? hint + ' ' + t('uninstallHint') : hint
+    const uninstallNote = installed.some((s) => s.editable === true) ? ' ' + t('uninstallHint') : ''
+    // 只有宿主真的给了运行时状态才提示徽标来源，否则别让用户以为状态是插件自己算的。
+    const runtimeNote = Object.keys(view?.runtime ?? {}).length > 0 ? ' ' + t('runtimeHint') : ''
+    return hint + uninstallNote + runtimeNote
   }
 
   return (
